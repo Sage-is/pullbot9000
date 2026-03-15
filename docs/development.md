@@ -7,7 +7,7 @@ This document provides detailed information for developers working on the Claude
 ### Prerequisites
 
 - Python 3.11 or higher
-- Poetry for dependency management
+- uv for dependency management
 - Git for version control
 - Claude authentication (one of):
   - Claude Code CLI installed and authenticated
@@ -17,13 +17,13 @@ This document provides detailed information for developers working on the Claude
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/RichardAtCT/claude-code-telegram.git
-   cd claude-code-telegram
+   git clone https://github.com/Sage-is/pullbot9000.git
+   cd pullbot9000
    ```
 
-2. **Install Poetry** (if not already installed):
+2. **Install uv** (if not already installed):
    ```bash
-   pip install poetry
+   curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
 
 3. **Install dependencies**:
@@ -33,7 +33,7 @@ This document provides detailed information for developers working on the Claude
 
 4. **Set up pre-commit hooks** (optional but recommended):
    ```bash
-   poetry run pre-commit install
+   uv run pre-commit install
    ```
 
 5. **Create configuration file**:
@@ -46,22 +46,17 @@ This document provides detailed information for developers working on the Claude
 
 ### Daily Development
 
-1. **Activate the Poetry environment**:
-   ```bash
-   poetry shell
-   ```
-
-2. **Run tests continuously during development**:
+1. **Run tests continuously during development**:
    ```bash
    make test
    ```
 
-3. **Format code before committing**:
+2. **Format code before committing**:
    ```bash
    make format
    ```
 
-4. **Check code quality**:
+3. **Check code quality**:
    ```bash
    make lint
    ```
@@ -262,7 +257,7 @@ We aim for >80% test coverage. Current coverage:
 
 #### TODO-1: Project Structure
 - Complete package layout with proper Python packaging
-- Poetry dependency management with dev/test/prod separation  
+- uv dependency management with dev/test/prod separation
 - Makefile with development commands
 - Exception hierarchy with proper inheritance
 - Structured logging with JSON output for production
@@ -390,7 +385,7 @@ make bump-minor    # 1.2.0 -> 1.3.0
 make bump-major    # 1.2.0 -> 2.0.0
 ```
 
-`make bump-*` runs `poetry version`, commits `pyproject.toml`, creates a git tag, and pushes both to GitHub. The tag push triggers the release workflow:
+`make bump-*` runs `uv version --bump`, commits `pyproject.toml`, creates a git tag, and pushes both to GitHub. The tag push triggers the release workflow:
 
 1. Runs the full lint + test suite
 2. Creates a GitHub Release with auto-generated release notes
@@ -497,15 +492,13 @@ test: add tests for authentication system
 
 ### Common Issues
 
-1. **Import errors**: Make sure you're in the Poetry environment (`poetry shell`)
+1. **Import errors**: Make sure dependencies are installed (`uv sync`)
 
 2. **Configuration validation errors**: Check that required environment variables are set
 
 3. **Test failures**: Ensure test dependencies are installed (`make dev`)
 
-4. **Type checking errors**: Run `poetry run mypy src` to see detailed errors
-
-5. **Poetry issues**: Try `poetry lock --no-update` to fix lock file issues
+4. **Type checking errors**: Run `uv run mypy src` to see detailed errors
 
 ### Getting Help
 

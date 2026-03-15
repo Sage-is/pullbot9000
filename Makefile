@@ -1,4 +1,4 @@
-.PHONY: install dev test lint format clean help run run-remote remote-attach remote-stop \
+.PHONY: install dev test lint format clean help run run-api run-api-debug run-remote remote-attach remote-stop \
        bump-patch bump-minor bump-major release version
 
 # Default target
@@ -11,6 +11,8 @@ help:
 	@echo "  format        - Format code"
 	@echo "  clean         - Clean up generated files"
 	@echo "  run           - Run the bot"
+	@echo "  run-api       - Run only the OpenAI-compatible API server"
+	@echo "  run-api-debug - Run API server with debug logging"
 	@echo "  version       - Show current version"
 	@echo "  bump-patch    - Bump patch version (1.2.0 -> 1.2.1), commit, and tag"
 	@echo "  bump-minor    - Bump minor version (1.2.0 -> 1.3.0), commit, and tag"
@@ -21,24 +23,24 @@ help:
 	@echo "  remote-stop   - Stop the bot tmux session"
 
 install:
-	poetry install --no-dev
+	uv sync --no-dev
 
 dev:
-	poetry install
-	poetry run pre-commit install --install-hooks || echo "pre-commit not configured yet"
+	uv sync
+	uv run pre-commit install --install-hooks || echo "pre-commit not configured yet"
 
 test:
-	poetry run pytest
+	uv run pytest
 
 lint:
-	poetry run black --check src tests
-	poetry run isort --check-only src tests
-	poetry run flake8 src tests
-	poetry run mypy src
+	uv run black --check src tests
+	uv run isort --check-only src tests
+	uv run flake8 src tests
+	uv run mypy src
 
 format:
-	poetry run black src tests
-	poetry run isort src tests
+	uv run black src tests
+	uv run isort src tests
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
@@ -47,16 +49,23 @@ clean:
 	rm -rf .coverage htmlcov/ .pytest_cache/ dist/ build/
 
 run:
-	poetry run claude-telegram-bot
+	env -u CLAUDECODE uv run sage-is-agent-bot
 
 # For debugging
 run-debug:
-	poetry run claude-telegram-bot --debug
+	env -u CLAUDECODE uv run sage-is-agent-bot --debug
 
-# Remote Mac Mini (SSH session)
-run-remote:  ## Start bot on remote Mac in tmux (persists after SSH disconnect)
+# API-only mode (no Telegram)
+run-api:
+	uv run claude-api-server
+
+run-api-debug:
+	uv run claude-api-server --debug
+
+# Remote (SSH session)
+run-remote:  ## Start bot on remote in tmux (persists after SSH disconnect)
 	security unlock-keychain ~/Library/Keychains/login.keychain-db
-	tmux new-session -d -s claude-bot 'poetry run claude-telegram-bot'
+	tmux new-session -d -s claude-bot 'uv run sage-is-agent-bot'
 	@echo "Bot started in tmux session 'claude-bot'"
 	@echo "  Attach: make remote-attach"
 	@echo "  Stop:   make remote-stop"
@@ -70,11 +79,11 @@ remote-stop:  ## Stop the bot tmux session
 # --- Version Management ---
 
 version:  ## Show current version
-	@poetry version -s
+	@uv version --short
 
 bump-patch:  ## Bump patch version, commit, and tag
-	poetry version patch && \
-	NEW_VERSION=$$(poetry version -s) && \
+	uv version --bump patch && \
+	NEW_VERSION=$$(uv version --short) && \
 	git add pyproject.toml && \
 	git commit -m "release: v$$NEW_VERSION" && \
 	git tag "v$$NEW_VERSION" && \
@@ -82,8 +91,8 @@ bump-patch:  ## Bump patch version, commit, and tag
 	echo "Released v$$NEW_VERSION. Tag pushed — release workflow will run on GitHub."
 
 bump-minor:  ## Bump minor version, commit, and tag
-	poetry version minor && \
-	NEW_VERSION=$$(poetry version -s) && \
+	uv version --bump minor && \
+	NEW_VERSION=$$(uv version --short) && \
 	git add pyproject.toml && \
 	git commit -m "release: v$$NEW_VERSION" && \
 	git tag "v$$NEW_VERSION" && \
@@ -91,8 +100,8 @@ bump-minor:  ## Bump minor version, commit, and tag
 	echo "Released v$$NEW_VERSION. Tag pushed — release workflow will run on GitHub."
 
 bump-major:  ## Bump major version, commit, and tag
-	poetry version major && \
-	NEW_VERSION=$$(poetry version -s) && \
+	uv version --bump major && \
+	NEW_VERSION=$$(uv version --short) && \
 	git add pyproject.toml && \
 	git commit -m "release: v$$NEW_VERSION" && \
 	git tag "v$$NEW_VERSION" && \
@@ -100,6 +109,6 @@ bump-major:  ## Bump major version, commit, and tag
 	echo "Released v$$NEW_VERSION. Tag pushed — release workflow will run on GitHub."
 
 release:  ## Push the current version tag to trigger the release workflow
-	CURRENT_VERSION=$$(poetry version -s) && \
+	CURRENT_VERSION=$$(uv version --short) && \
 	git push && git push origin "v$$CURRENT_VERSION" && \
 	echo "Pushed v$$CURRENT_VERSION. Release workflow will run on GitHub."

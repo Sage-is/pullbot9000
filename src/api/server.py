@@ -5,7 +5,7 @@ Receives external webhooks and publishes them as events on the bus.
 """
 
 import uuid
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import structlog
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -16,18 +16,22 @@ from ..events.types import WebhookEvent
 from ..storage.database import DatabaseManager
 from .auth import verify_github_signature, verify_shared_secret
 
+if TYPE_CHECKING:
+    from ..claude.facade import ClaudeIntegration
+
 logger = structlog.get_logger()
 
 
 def create_api_app(
-    event_bus: EventBus,
+    event_bus: Optional[EventBus],
     settings: Settings,
     db_manager: Optional[DatabaseManager] = None,
+    claude_integration: Optional["ClaudeIntegration"] = None,
 ) -> FastAPI:
     """Create the FastAPI application."""
 
     app = FastAPI(
-        title="Claude Code Telegram - Webhook API",
+        title="Claude Code Telegram - API",
         version="0.1.0",
         docs_url="/docs" if settings.development_mode else None,
         redoc_url=None,
@@ -36,6 +40,16 @@ def create_api_app(
     @app.get("/health")
     async def health_check() -> Dict[str, str]:
         return {"status": "ok"}
+
+    # Mount OpenAI-compatible router when claude_integration is available
+    if claude_integration is not None:
+        from .openai_compat import create_openai_router
+
+        app.include_router(create_openai_router(claude_integration, settings))
+
+    # Webhook routes require an event bus
+    if event_bus is None:
+        return app
 
     @app.post("/webhooks/{provider}")
     async def receive_webhook(
@@ -176,11 +190,12 @@ async def run_api_server(
     event_bus: EventBus,
     settings: Settings,
     db_manager: Optional[DatabaseManager] = None,
+    claude_integration: Optional["ClaudeIntegration"] = None,
 ) -> None:
     """Run the FastAPI server using uvicorn."""
     import uvicorn
 
-    app = create_api_app(event_bus, settings, db_manager)
+    app = create_api_app(event_bus, settings, db_manager, claude_integration)
 
     config = uvicorn.Config(
         app=app,

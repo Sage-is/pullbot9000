@@ -27,6 +27,7 @@ from claude_agent_sdk import (
     PermissionResultDeny,
     ProcessError,
     ResultMessage,
+    ThinkingBlock,
     ToolPermissionContext,
     ToolUseBlock,
     UserMessage,
@@ -518,6 +519,8 @@ class ClaudeSDKManager:
                                     "id": getattr(block, "id", None),
                                 }
                             )
+                        elif isinstance(block, ThinkingBlock):
+                            text_parts.append(f"<thinking>{block.thinking}</thinking>")
                         elif hasattr(block, "text"):
                             text_parts.append(block.text)
 
@@ -558,7 +561,9 @@ class ClaudeSDKManager:
                 if content and isinstance(content, list):
                     # Extract text from TextBlock objects
                     for block in content:
-                        if hasattr(block, "text"):
+                        if isinstance(block, ThinkingBlock):
+                            content_parts.append(f"<thinking>{block.thinking}</thinking>")
+                        elif hasattr(block, "text"):
                             content_parts.append(block.text)
                 elif content:
                     # Fallback for non-list content

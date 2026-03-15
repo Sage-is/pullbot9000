@@ -45,24 +45,24 @@ Choose your preferred method:
 
 ```bash
 # Using uv (recommended — installs in an isolated environment)
-uv tool install git+https://github.com/RichardAtCT/claude-code-telegram@v1.3.0
+uv tool install git+https://github.com/Sage-is/pullbot9000@v1.3.0
 
 # Or using pip
-pip install git+https://github.com/RichardAtCT/claude-code-telegram@v1.3.0
+pip install git+https://github.com/Sage-is/pullbot9000@v1.3.0
 
 # Track the latest stable release
-pip install git+https://github.com/RichardAtCT/claude-code-telegram@latest
+pip install git+https://github.com/Sage-is/pullbot9000@latest
 ```
 
 #### Option B: From source (for development)
 
 ```bash
-git clone https://github.com/RichardAtCT/claude-code-telegram.git
-cd claude-code-telegram
-make dev  # requires Poetry
+git clone https://github.com/Sage-is/pullbot9000.git
+cd pullbot9000
+make dev  # requires uv
 ```
 
-> **Note:** Always install from a tagged release (not `main`) for stability. See [Releases](https://github.com/RichardAtCT/claude-code-telegram/releases) for available versions.
+> **Note:** Always install from a tagged release (not `main`) for stability. See [Releases](https://github.com/Sage-is/pullbot9000/releases) for available versions.
 
 ### 3. Configure
 
@@ -114,7 +114,7 @@ Bot: Working... (8s)
      📖 Read: http_client.py
      💬 I'll add a retry decorator with exponential backoff
      ✏️ Edit: http_client.py
-     💻 Bash: poetry run pytest tests/ -v
+     💻 Bash: uv run pytest tests/ -v
 Bot: [Claude shows the changes and test results]
 
 You: /verbose 0
@@ -365,5 +365,6 @@ MIT License -- see [LICENSE](LICENSE).
 
 ## Acknowledgments
 
+- Originally created by [Richard Atkinson](https://github.com/RichardAtCT) as [claude-code-telegram](https://github.com/RichardAtCT/claude-code-telegram)
 - [Claude](https://claude.ai) by Anthropic
 - [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)

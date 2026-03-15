@@ -402,10 +402,7 @@ class TestRedactSecrets:
     """Ensure sensitive substrings are redacted from Bash command summaries."""
 
     def test_safe_command_unchanged(self):
-        assert (
-            _redact_secrets("poetry run pytest tests/ -v")
-            == "poetry run pytest tests/ -v"
-        )
+        assert _redact_secrets("uv run pytest tests/ -v") == "uv run pytest tests/ -v"
 
     def test_anthropic_api_key_redacted(self):
         key = "sk-ant-api03-abc123def456ghi789jkl012mno345"

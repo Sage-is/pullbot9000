@@ -180,7 +180,7 @@ class QuickActionManager:
                     context["has_tests"] = True
 
                 # Check for package manager indicators
-                if any(word in content for word in ["pip", "poetry", "npm", "yarn"]):
+                if any(word in content for word in ["pip", "uv", "npm", "yarn"]):
                     context["has_package_manager"] = True
                     context["has_dependencies"] = True
 

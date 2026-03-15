@@ -17,15 +17,15 @@ This project is currently under active development with the following status:
 ### Prerequisites
 
 - Python 3.11 or higher
-- Poetry for dependency management
+- uv for dependency management
 - Git for version control
 
 ### Setting Up Development Environment
 
 1. **Fork and clone the repository**:
    ```bash
-   git clone https://github.com/your-username/claude-code-telegram.git
-   cd claude-code-telegram
+   git clone https://github.com/sage-is/pullbot9000.git
+   cd pullbot9000
    ```
 
 2. **Install dependencies**:
@@ -291,7 +291,7 @@ What you expected to happen.
 **Environment**
 - OS: [e.g. macOS, Linux]
 - Python version: [e.g. 3.9]
-- Poetry version: [e.g. 1.7.1]
+- uv version: [e.g. 0.10.5]
 
 **Additional context**
 Any other context about the problem.
@@ -336,7 +336,7 @@ Instead:
 
 ### Required Tools
 
-- **Poetry**: Dependency management
+- **uv**: Dependency management
 - **Black**: Code formatting  
 - **isort**: Import sorting
 - **flake8**: Linting
@@ -357,7 +357,7 @@ Instead:
 ```
 
 #### PyCharm
-- Configure Poetry interpreter
+- Configure uv interpreter
 - Enable Black formatting
 - Enable flake8 and mypy inspections
 
@@ -394,7 +394,7 @@ Instead:
 ### Debugging
 - Use `make run-debug` for detailed logging
 - Check test output with `make test`
-- Run type checking with `poetry run mypy src`
+- Run type checking with `uv run mypy src`
 
 ## Recognition
 

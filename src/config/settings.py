@@ -122,7 +122,7 @@ class Settings(BaseSettings):
         description="Enable OS-level bash sandboxing for approved dir",
     )
     sandbox_excluded_commands: Optional[List[str]] = Field(
-        default=["git", "npm", "pip", "poetry", "make", "docker"],
+        default=["git", "npm", "pip", "uv", "make", "docker"],
         description="Commands that run outside the sandbox (need system access)",
     )
 
@@ -196,6 +196,12 @@ class Settings(BaseSettings):
     # Agentic platform settings
     enable_api_server: bool = Field(False, description="Enable FastAPI webhook server")
     api_server_port: int = Field(8080, description="Webhook API server port")
+    api_stream_thinking: bool = Field(
+        False,
+        description=(
+            "Include <thinking> blocks in OpenAI-compatible streaming responses"
+        ),
+    )
     enable_scheduler: bool = Field(False, description="Enable job scheduler")
     github_webhook_secret: Optional[str] = Field(
         None, description="GitHub webhook HMAC secret"
