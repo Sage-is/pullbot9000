@@ -83,6 +83,7 @@ class DeltaContent(BaseModel):
 
     role: Optional[str] = None
     content: Optional[str] = None
+    reasoning_content: Optional[str] = None
 
 
 class StreamChoice(BaseModel):
@@ -312,7 +313,7 @@ async def _stream_response(
             StreamChoice(delta=DeltaContent(role="assistant")),
         ],
     )
-    yield f"data: {initial_chunk.model_dump_json()}\n\n"
+    yield f"data: {initial_chunk.model_dump_json(exclude_none=True)}\n\n"
 
     # Deduplication state for delta-only streaming.
     # The SDK may emit the same AssistantMessage content in multiple raw
@@ -329,17 +330,25 @@ async def _stream_response(
     seen_thinking: set[str] = set()
     stream_thinking = settings.api_stream_thinking
 
-    def _make_chunk(content: str) -> str:
+    def _make_chunk(
+        content: Optional[str] = None,
+        reasoning_content: Optional[str] = None,
+    ) -> str:
         """Format a content delta as an SSE chunk."""
         c = ChatCompletionChunk(
             id=completion_id,
             created=created,
             model=model,
             choices=[
-                StreamChoice(delta=DeltaContent(content=content)),
+                StreamChoice(
+                    delta=DeltaContent(
+                        content=content,
+                        reasoning_content=reasoning_content,
+                    )
+                ),
             ],
         )
-        return f"data: {c.model_dump_json()}\n\n"
+        return f"data: {c.model_dump_json(exclude_none=True)}\n\n"
 
     try:
         while True:
@@ -354,38 +363,58 @@ async def _stream_response(
                 break
 
             if update.type == "assistant" and update.content:
-                thinking_parts, text_only = _extract_thinking(update.content)
+                raw_content = update.content
+                thinking_parts, text_only = _extract_thinking(raw_content)
 
-                # --- Thinking chunks (optional) ---
+                logger.debug(
+                    "stream_update_received",
+                    raw_len=len(raw_content),
+                    raw_preview=raw_content[:200],
+                    thinking_count=len(thinking_parts),
+                    text_only_preview=text_only[:200] if text_only else "",
+                    total_sent_len=len(total_sent_text),
+                )
+
+                # --- Thinking: emit via both reasoning_content and
+                # <think> tags in content for broad client compat ---
                 if stream_thinking:
                     for thought in thinking_parts:
                         if thought not in seen_thinking:
                             seen_thinking.add(thought)
                             yield _make_chunk(
-                                f"<thinking>{thought}</thinking>\n"
+                                content=f"<think>{thought}</think>\n",
+                                reasoning_content=thought,
                             )
 
                 if not text_only:
                     continue  # Nothing left after stripping thinking
 
                 # --- Text deduplication ---
+                delta_text = ""
                 if text_only in seen_exact:
-                    continue
-                seen_exact.add(text_only)
-
-                if text_only.startswith(total_sent_text):
-                    # Accumulated extension — yield only the new suffix
+                    logger.debug("stream_skip_exact_dup", text=text_only[:100])
+                elif text_only.startswith(total_sent_text):
                     delta_text = text_only[len(total_sent_text) :]
                     total_sent_text = text_only
+                    seen_exact.add(text_only)
+                elif total_sent_text and text_only in total_sent_text:
+                    logger.debug(
+                        "stream_skip_substring", text=text_only[:100]
+                    )
                 else:
-                    # New assistant turn — yield with separator
                     delta_text = (
                         ("\n" + text_only) if total_sent_text else text_only
                     )
                     total_sent_text += delta_text
+                    seen_exact.add(text_only)
 
                 if delta_text:
-                    yield _make_chunk(delta_text)
+                    logger.debug(
+                        "stream_yielding_delta",
+                        delta_len=len(delta_text),
+                        delta_preview=delta_text[:200],
+                    )
+                    yield _make_chunk(content=delta_text)
 
     finally:
         if not task.done():
@@ -415,5 +444,5 @@ async def _stream_response(
             ),
         ],
     )
-    yield f"data: {final_chunk.model_dump_json()}\n\n"
+    yield f"data: {final_chunk.model_dump_json(exclude_none=True)}\n\n"
     yield "data: [DONE]\n\n"

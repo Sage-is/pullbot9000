@@ -1,4 +1,4 @@
-"""Main entry point for Claude Code Telegram Bot."""
+"""Main entry point for Sage-Bot."""
 
 import argparse
 import asyncio
