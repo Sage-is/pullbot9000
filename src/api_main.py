@@ -20,8 +20,10 @@ import structlog
 
 from src import __version__
 from src.api.server import create_api_app
-from src.claude import ClaudeIntegration, SessionManager
-from src.claude.sdk_integration import ClaudeSDKManager
+from src.backend import ClaudeIntegration, SessionManager
+from src.backend.sdk_integration import ClaudeSDKManager
+from src.backend.opencode_integration import OpenCodeManager
+from src.backend.opencode_server import OpenCodeServer
 from src.config.api_settings import APISettings
 from src.security.validators import SecurityValidator
 from src.storage.facade import Storage
@@ -103,8 +105,18 @@ async def main() -> None:
         disable_security_patterns=config.disable_security_patterns,
     )
 
-    # Claude integration
-    sdk_manager = ClaudeSDKManager(config, security_validator=security_validator)
+    # Backend integration
+    opencode_server = None
+    if getattr(config, "backend", "claude") == "opencode":
+        log.info("Using OpenCode HTTP API backend")
+        if getattr(config, "opencode_auto_start", True):
+            opencode_server = OpenCodeServer(config)
+            await opencode_server.start()
+        sdk_manager = OpenCodeManager(config, security_validator=security_validator)
+    else:
+        log.info("Using Claude Python SDK backend")
+        sdk_manager = ClaudeSDKManager(config, security_validator=security_validator)
+
     session_storage = SQLiteSessionStorage(storage.db_manager)
     session_manager = SessionManager(config, session_storage)
     claude_integration = ClaudeIntegration(
@@ -119,6 +131,7 @@ async def main() -> None:
         settings=config,
         db_manager=storage.db_manager,
         claude_integration=claude_integration,
+        storage=storage,
     )
 
     log.info("API server starting", port=config.api_server_port)
@@ -136,7 +149,7 @@ async def main() -> None:
     server = uvicorn.Server(
         uvicorn.Config(
             app=app,
-            host="0.0.0.0",
+            host=config.api_server_host,
             port=config.api_server_port,
             log_level="debug" if config.debug else "info",
         )
@@ -160,6 +173,8 @@ async def main() -> None:
     finally:
         log.info("Shutting down API server")
         await claude_integration.shutdown()
+        if opencode_server:
+            opencode_server.stop()
         await storage.close()
         log.info("API server shutdown complete")
 

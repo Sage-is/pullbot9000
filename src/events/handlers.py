@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 
 import structlog
 
-from ..claude.facade import ClaudeIntegration
+from ..backend.facade import ClaudeIntegration
 from .bus import Event, EventBus
 from .types import AgentResponseEvent, ScheduledEvent, WebhookEvent
 

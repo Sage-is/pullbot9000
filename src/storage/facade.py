@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 import structlog
 
-from ..claude.sdk_integration import ClaudeResponse
+from ..backend.sdk_integration import ClaudeResponse
 from .database import DatabaseManager
 from .models import (
     AuditLogModel,

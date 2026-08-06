@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Telegram bot providing remote access to Claude Code. Python 3.10+, built with uv, using `python-telegram-bot` for Telegram and `claude-agent-sdk` for Claude Code integration.
+Telegram bot providing remote access to AI coding agents. Python 3.10+, built with uv, using `python-telegram-bot` for Telegram. Supports two backends (toggled via `BACKEND` env var): Claude Code (`claude-agent-sdk`) and OpenCode (`opencode serve` HTTP API).
 
 ## Commands
 
@@ -26,9 +26,9 @@ uv run mypy src
 
 ## Architecture
 
-### Claude SDK Integration
+### Backend Integration
 
-`ClaudeIntegration` (facade in `src/claude/facade.py`) wraps `ClaudeSDKManager` (`src/claude/sdk_integration.py`), which uses `claude-agent-sdk` with `ClaudeSDKClient` for async streaming. Session IDs come from Claude's `ResultMessage`, not generated locally.
+`ClaudeIntegration` (facade in `src/backend/facade.py`) wraps either `ClaudeSDKManager` (`src/backend/sdk_integration.py`) or `OpenCodeManager` (`src/backend/opencode_integration.py`), selected by `BACKEND` env var (`claude` or `opencode`). Claude backend uses `claude-agent-sdk` with `ClaudeSDKClient` for async streaming. OpenCode backend calls the OpenCode HTTP API via `httpx`. Session IDs come from the backend's response, not generated locally.
 
 Sessions auto-resume: per user+directory, persisted in SQLite.
 
@@ -71,7 +71,7 @@ context.bot_data["security_validator"]
 - `src/bot/middleware/` -- Auth, rate limit, security input validation
 - `src/bot/features/` -- Git integration, file handling, quick actions, session export
 - `src/bot/orchestrator.py` -- MessageOrchestrator: routes to agentic or classic handlers, project-topic routing
-- `src/claude/` -- Claude integration facade, SDK/CLI managers, session management, tool monitoring
+- `src/backend/` -- AI backend facade, Claude SDK + OpenCode HTTP managers, session management, tool monitoring, OpenCode server lifecycle
 - `src/projects/` -- Multi-project support: `registry.py` (YAML project config), `thread_manager.py` (Telegram topic sync/routing)
 - `src/storage/` -- SQLite via aiosqlite, repository pattern (users, sessions, messages, tool_usage, audit_log, cost_tracking, project_threads)
 - `src/security/` -- Multi-provider auth (whitelist + token), input validators (with optional `disable_security_patterns`), rate limiter, audit logging

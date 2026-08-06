@@ -16,7 +16,7 @@ from claude_agent_sdk import (
 )
 from claude_agent_sdk.types import StreamEvent
 
-from src.claude.sdk_integration import (
+from src.backend.sdk_integration import (
     ClaudeResponse,
     ClaudeSDKManager,
     StreamUpdate,
@@ -28,7 +28,7 @@ from src.config.settings import Settings
 @pytest.fixture(autouse=True)
 def _patch_parse_message():
     """Patch parse_message as identity so mocks can yield typed Message objects."""
-    with patch("src.claude.sdk_integration.parse_message", side_effect=lambda x: x):
+    with patch("src.backend.sdk_integration.parse_message", side_effect=lambda x: x):
         yield
 
 
@@ -164,7 +164,7 @@ class TestClaudeSDKManager:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             response = await sdk_manager.execute_command(
                 prompt="Test prompt",
@@ -187,7 +187,7 @@ class TestClaudeSDKManager:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             response = await sdk_manager.execute_command(
                 prompt="Test prompt",
@@ -204,7 +204,7 @@ class TestClaudeSDKManager:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             response = await sdk_manager.execute_command(
                 prompt="Test prompt",
@@ -226,7 +226,7 @@ class TestClaudeSDKManager:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await sdk_manager.execute_command(
                 prompt="Test prompt",
@@ -240,7 +240,7 @@ class TestClaudeSDKManager:
 
     async def test_execute_command_timeout(self, sdk_manager):
         """Test command execution timeout."""
-        from src.claude.exceptions import ClaudeTimeoutError
+        from src.backend.exceptions import ClaudeTimeoutError
 
         client = AsyncMock()
         client.connect = AsyncMock()
@@ -255,7 +255,7 @@ class TestClaudeSDKManager:
         query_mock.receive_messages = hanging_receive
         client._query = query_mock
 
-        with patch("src.claude.sdk_integration.ClaudeSDKClient", return_value=client):
+        with patch("src.backend.sdk_integration.ClaudeSDKClient", return_value=client):
             with pytest.raises(ClaudeTimeoutError):
                 await sdk_manager.execute_command(
                     prompt="Test prompt",
@@ -293,7 +293,7 @@ class TestClaudeSDKManager:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await manager.execute_command(
                 prompt="Test prompt",
@@ -316,7 +316,7 @@ class TestClaudeSDKManager:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await sdk_manager.execute_command(
                 prompt="Test prompt",
@@ -337,7 +337,7 @@ class TestClaudeSDKManager:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await sdk_manager.execute_command(
                 prompt="Continue working",
@@ -359,7 +359,7 @@ class TestClaudeSDKManager:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await sdk_manager.execute_command(
                 prompt="New prompt",
@@ -403,7 +403,7 @@ class TestClaudeSandboxSettings:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await sdk_manager.execute_command(
                 prompt="Test prompt",
@@ -430,7 +430,7 @@ class TestClaudeSandboxSettings:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await sdk_manager.execute_command(
                 prompt="Test prompt",
@@ -461,7 +461,7 @@ class TestClaudeSandboxSettings:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await manager.execute_command(
                 prompt="Test prompt",
@@ -490,7 +490,7 @@ class TestClaudeSandboxSettings:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await manager.execute_command(
                 prompt="Test prompt",
@@ -519,7 +519,7 @@ class TestClaudeSandboxSettings:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await manager.execute_command(
                 prompt="Test prompt",
@@ -552,7 +552,7 @@ class TestClaudeMCPErrors:
         """Test that MCP connection errors raise ClaudeMCPError."""
         from claude_agent_sdk import CLIConnectionError
 
-        from src.claude.exceptions import ClaudeMCPError
+        from src.backend.exceptions import ClaudeMCPError
 
         client = AsyncMock()
         client.connect = AsyncMock()
@@ -561,7 +561,7 @@ class TestClaudeMCPErrors:
             side_effect=CLIConnectionError("MCP server failed to start")
         )
 
-        with patch("src.claude.sdk_integration.ClaudeSDKClient", return_value=client):
+        with patch("src.backend.sdk_integration.ClaudeSDKClient", return_value=client):
             with pytest.raises(ClaudeMCPError) as exc_info:
                 await sdk_manager.execute_command(
                     prompt="Test prompt",
@@ -574,7 +574,7 @@ class TestClaudeMCPErrors:
         """Test that MCP process errors raise ClaudeMCPError."""
         from claude_agent_sdk import ProcessError
 
-        from src.claude.exceptions import ClaudeMCPError
+        from src.backend.exceptions import ClaudeMCPError
 
         client = AsyncMock()
         client.connect = AsyncMock()
@@ -583,7 +583,7 @@ class TestClaudeMCPErrors:
             side_effect=ProcessError("Failed to start MCP server: connection refused")
         )
 
-        with patch("src.claude.sdk_integration.ClaudeSDKClient", return_value=client):
+        with patch("src.backend.sdk_integration.ClaudeSDKClient", return_value=client):
             with pytest.raises(ClaudeMCPError) as exc_info:
                 await sdk_manager.execute_command(
                     prompt="Test prompt",
@@ -693,7 +693,7 @@ class TestCanUseToolCallback:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await manager.execute_command(prompt="Test", working_directory=tmp_path)
 
@@ -718,7 +718,7 @@ class TestCanUseToolCallback:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             await manager.execute_command(prompt="Test", working_directory=tmp_path)
 
@@ -756,7 +756,7 @@ class TestSessionIdFallback:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             response = await sdk_manager.execute_command(
                 prompt="Test prompt",
@@ -779,7 +779,7 @@ class TestSessionIdFallback:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             response = await sdk_manager.execute_command(
                 prompt="Test prompt",
@@ -802,7 +802,7 @@ class TestSessionIdFallback:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             response = await sdk_manager.execute_command(
                 prompt="Test prompt",
@@ -832,7 +832,7 @@ class TestSessionIdFallback:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             response = await sdk_manager.execute_command(
                 prompt="Test prompt",
@@ -849,7 +849,7 @@ class TestSessionIdFallback:
         )
 
         with patch(
-            "src.claude.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
+            "src.backend.sdk_integration.ClaudeSDKClient", side_effect=mock_factory
         ):
             response = await sdk_manager.execute_command(
                 prompt="Test prompt",

@@ -30,7 +30,7 @@ from typing import Dict, List, Optional
 import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from ...claude.sdk_integration import ClaudeResponse
+from ...backend.sdk_integration import ClaudeResponse
 
 logger = structlog.get_logger()
 

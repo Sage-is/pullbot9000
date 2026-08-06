@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from src.claude.monitor import (
+from src.backend.monitor import (
     _is_claude_internal_path,
     check_bash_directory_boundary,
 )
@@ -240,7 +240,7 @@ class TestIsClaudeInternalPath:
 
     def test_plan_file_is_internal(self, tmp_path: Path) -> None:
         """~/.claude/plans/some-plan.md should be recognised as internal."""
-        with patch("src.claude.monitor.Path.home", return_value=tmp_path):
+        with patch("src.backend.monitor.Path.home", return_value=tmp_path):
             (tmp_path / ".claude" / "plans").mkdir(parents=True)
             plan_file = tmp_path / ".claude" / "plans" / "my-plan.md"
             plan_file.touch()
@@ -248,7 +248,7 @@ class TestIsClaudeInternalPath:
 
     def test_todo_file_is_internal(self, tmp_path: Path) -> None:
         """~/.claude/todos/todo.md should be recognised as internal."""
-        with patch("src.claude.monitor.Path.home", return_value=tmp_path):
+        with patch("src.backend.monitor.Path.home", return_value=tmp_path):
             (tmp_path / ".claude" / "todos").mkdir(parents=True)
             todo_file = tmp_path / ".claude" / "todos" / "todo.md"
             todo_file.touch()
@@ -256,7 +256,7 @@ class TestIsClaudeInternalPath:
 
     def test_settings_json_is_internal(self, tmp_path: Path) -> None:
         """~/.claude/settings.json should be recognised as internal."""
-        with patch("src.claude.monitor.Path.home", return_value=tmp_path):
+        with patch("src.backend.monitor.Path.home", return_value=tmp_path):
             (tmp_path / ".claude").mkdir(parents=True)
             settings_file = tmp_path / ".claude" / "settings.json"
             settings_file.touch()
@@ -264,7 +264,7 @@ class TestIsClaudeInternalPath:
 
     def test_arbitrary_file_under_claude_dir_rejected(self, tmp_path: Path) -> None:
         """Files directly under ~/.claude/ (not in known subdirs) are rejected."""
-        with patch("src.claude.monitor.Path.home", return_value=tmp_path):
+        with patch("src.backend.monitor.Path.home", return_value=tmp_path):
             (tmp_path / ".claude").mkdir(parents=True)
             secret = tmp_path / ".claude" / "credentials.json"
             secret.touch()
@@ -272,7 +272,7 @@ class TestIsClaudeInternalPath:
 
     def test_path_outside_claude_dir_rejected(self, tmp_path: Path) -> None:
         """Paths outside ~/.claude/ entirely are rejected."""
-        with patch("src.claude.monitor.Path.home", return_value=tmp_path):
+        with patch("src.backend.monitor.Path.home", return_value=tmp_path):
             assert _is_claude_internal_path("/etc/passwd") is False
             assert _is_claude_internal_path("/tmp/evil.txt") is False
 
@@ -282,7 +282,7 @@ class TestIsClaudeInternalPath:
 
     def test_unknown_subdir_rejected(self, tmp_path: Path) -> None:
         """Unknown subdirectories under ~/.claude/ are rejected."""
-        with patch("src.claude.monitor.Path.home", return_value=tmp_path):
+        with patch("src.backend.monitor.Path.home", return_value=tmp_path):
             (tmp_path / ".claude" / "secrets").mkdir(parents=True)
             bad_file = tmp_path / ".claude" / "secrets" / "key.pem"
             bad_file.touch()

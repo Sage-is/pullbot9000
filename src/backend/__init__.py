@@ -1,4 +1,4 @@
-"""Claude Code integration module."""
+"""Claude Code / OpenCode integration module."""
 
 from .exceptions import (
     ClaudeError,
@@ -8,6 +8,8 @@ from .exceptions import (
     ClaudeTimeoutError,
 )
 from .facade import ClaudeIntegration
+from .opencode_integration import OpenCodeManager
+from .opencode_server import OpenCodeServer
 from .sdk_integration import ClaudeResponse, ClaudeSDKManager, StreamUpdate
 from .session import (
     ClaudeSession,
@@ -27,6 +29,8 @@ __all__ = [
     "ClaudeIntegration",
     # Core components
     "ClaudeSDKManager",
+    "OpenCodeManager",
+    "OpenCodeServer",
     "ClaudeResponse",
     "StreamUpdate",
     "SessionManager",

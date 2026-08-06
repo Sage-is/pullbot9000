@@ -9,7 +9,7 @@ from typing import List, Optional
 
 import structlog
 
-from ..claude.session import ClaudeSession, SessionStorage
+from ..backend.session import ClaudeSession, SessionStorage
 from .database import DatabaseManager
 from .models import SessionModel
 

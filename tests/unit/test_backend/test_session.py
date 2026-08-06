@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from src.claude.sdk_integration import ClaudeResponse
-from src.claude.session import ClaudeSession, InMemorySessionStorage, SessionManager
+from src.backend.sdk_integration import ClaudeResponse
+from src.backend.session import ClaudeSession, InMemorySessionStorage, SessionManager
 from src.config.settings import Settings
 
 

@@ -7,7 +7,7 @@ import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from ...claude.facade import ClaudeIntegration
+from ...backend.facade import ClaudeIntegration
 from ...config.settings import Settings
 from ...projects import PrivateTopicsUnavailableError, load_project_registry
 from ...security.audit import AuditLogger

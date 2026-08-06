@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.claude.facade import ClaudeIntegration
-from src.claude.session import ClaudeSession, InMemorySessionStorage, SessionManager
+from src.backend.facade import ClaudeIntegration
+from src.backend.session import ClaudeSession, InMemorySessionStorage, SessionManager
 from src.config.settings import Settings
 
 

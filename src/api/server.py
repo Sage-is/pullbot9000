@@ -14,10 +14,11 @@ from ..config.settings import Settings
 from ..events.bus import EventBus
 from ..events.types import WebhookEvent
 from ..storage.database import DatabaseManager
+from ..storage.facade import Storage
 from .auth import verify_github_signature, verify_shared_secret
 
 if TYPE_CHECKING:
-    from ..claude.facade import ClaudeIntegration
+    from ..backend.facade import ClaudeIntegration
 
 logger = structlog.get_logger()
 
@@ -27,6 +28,7 @@ def create_api_app(
     settings: Settings,
     db_manager: Optional[DatabaseManager] = None,
     claude_integration: Optional["ClaudeIntegration"] = None,
+    storage: Optional[Storage] = None,
 ) -> FastAPI:
     """Create the FastAPI application."""
 
@@ -45,7 +47,11 @@ def create_api_app(
     if claude_integration is not None:
         from .openai_compat import create_openai_router
 
-        app.include_router(create_openai_router(claude_integration, settings))
+        app.include_router(
+            create_openai_router(
+                claude_integration, settings, storage=storage
+            )
+        )
 
     # Webhook routes require an event bus
     if event_bus is None:
@@ -191,15 +197,18 @@ async def run_api_server(
     settings: Settings,
     db_manager: Optional[DatabaseManager] = None,
     claude_integration: Optional["ClaudeIntegration"] = None,
+    storage: Optional[Storage] = None,
 ) -> None:
     """Run the FastAPI server using uvicorn."""
     import uvicorn
 
-    app = create_api_app(event_bus, settings, db_manager, claude_integration)
+    app = create_api_app(
+        event_bus, settings, db_manager, claude_integration, storage=storage
+    )
 
     config = uvicorn.Config(
         app=app,
-        host="0.0.0.0",
+        host=settings.api_server_host,
         port=settings.api_server_port,
         log_level="info" if not settings.debug else "debug",
     )

@@ -15,9 +15,11 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ..claude.facade import ClaudeIntegration
-from ..claude.sdk_integration import StreamUpdate
+from ..backend.facade import ClaudeIntegration
+from ..backend.sdk_integration import ClaudeResponse, StreamUpdate
 from ..config.settings import Settings
+from ..storage.facade import Storage
+from ..utils.constants import SAGE_API_USER_ID, SAGE_API_USERNAME
 
 logger = structlog.get_logger()
 
@@ -83,7 +85,6 @@ class DeltaContent(BaseModel):
 
     role: Optional[str] = None
     content: Optional[str] = None
-    reasoning_content: Optional[str] = None
 
 
 class StreamChoice(BaseModel):
@@ -201,6 +202,7 @@ def _verify_bearer_token(
 def create_openai_router(
     claude_integration: ClaudeIntegration,
     settings: Settings,
+    storage: Optional["Storage"] = None,
 ) -> APIRouter:
     """Create a FastAPI router with OpenAI-compatible endpoints."""
 
@@ -227,6 +229,7 @@ def create_openai_router(
                     model=request.model,
                     claude_integration=claude_integration,
                     settings=settings,
+                    storage=storage,
                 ),
                 media_type="text/event-stream",
                 headers={
@@ -239,8 +242,12 @@ def create_openai_router(
         response = await claude_integration.run_command(
             prompt=prompt,
             working_directory=settings.approved_directory,
-            user_id=0,
+            user_id=SAGE_API_USER_ID,  # Shared Sage conversation for all API clients
         )
+
+        # Track cost
+        if storage:
+            await _track_api_cost(storage, prompt, response)
 
         return ChatCompletionResponse(
             id=completion_id,
@@ -279,12 +286,33 @@ def create_openai_router(
 # ---------------------------------------------------------------------------
 
 
+async def _track_api_cost(
+    storage: Storage, prompt: str, response: ClaudeResponse
+) -> None:
+    """Record an API request's cost in the database."""
+    try:
+        # Ensure the shared Sage user row exists so stats/cost tracking update
+        await storage.get_or_create_user(
+            user_id=SAGE_API_USER_ID, username=SAGE_API_USERNAME
+        )
+        session_id = response.session_id or "api-no-session"
+        await storage.save_claude_interaction(
+            user_id=SAGE_API_USER_ID,  # Shared Sage conversation for all API clients
+            session_id=session_id,
+            prompt=prompt,
+            response=response,
+        )
+    except Exception as e:
+        logger.error("Failed to track API cost", error=str(e), cost=response.cost)
+
+
 async def _stream_response(
     prompt: str,
     completion_id: str,
     model: str,
     claude_integration: ClaudeIntegration,
     settings: Settings,
+    storage: Optional[Storage] = None,
 ) -> AsyncIterator[str]:
     """Bridge Claude's push-based streaming to SSE chunks."""
 
@@ -297,7 +325,7 @@ async def _stream_response(
         claude_integration.run_command(
             prompt=prompt,
             working_directory=settings.approved_directory,
-            user_id=0,
+            user_id=SAGE_API_USER_ID,  # Shared Sage conversation for all API clients
             on_stream=on_stream,
         )
     )
@@ -313,7 +341,7 @@ async def _stream_response(
             StreamChoice(delta=DeltaContent(role="assistant")),
         ],
     )
-    yield f"data: {initial_chunk.model_dump_json(exclude_none=True)}\n\n"
+    yield f"data: {initial_chunk.model_dump_json()}\n\n"
 
     # Deduplication state for delta-only streaming.
     # The SDK may emit the same AssistantMessage content in multiple raw
@@ -330,25 +358,17 @@ async def _stream_response(
     seen_thinking: set[str] = set()
     stream_thinking = settings.api_stream_thinking
 
-    def _make_chunk(
-        content: Optional[str] = None,
-        reasoning_content: Optional[str] = None,
-    ) -> str:
+    def _make_chunk(content: str) -> str:
         """Format a content delta as an SSE chunk."""
         c = ChatCompletionChunk(
             id=completion_id,
             created=created,
             model=model,
             choices=[
-                StreamChoice(
-                    delta=DeltaContent(
-                        content=content,
-                        reasoning_content=reasoning_content,
-                    )
-                ),
+                StreamChoice(delta=DeltaContent(content=content)),
             ],
         )
-        return f"data: {c.model_dump_json(exclude_none=True)}\n\n"
+        return f"data: {c.model_dump_json()}\n\n"
 
     try:
         while True:
@@ -363,58 +383,38 @@ async def _stream_response(
                 break
 
             if update.type == "assistant" and update.content:
-                raw_content = update.content
-                thinking_parts, text_only = _extract_thinking(raw_content)
+                thinking_parts, text_only = _extract_thinking(update.content)
 
-                logger.debug(
-                    "stream_update_received",
-                    raw_len=len(raw_content),
-                    raw_preview=raw_content[:200],
-                    thinking_count=len(thinking_parts),
-                    text_only_preview=text_only[:200] if text_only else "",
-                    total_sent_len=len(total_sent_text),
-                )
-
-                # --- Thinking: emit via both reasoning_content and
-                # <think> tags in content for broad client compat ---
+                # --- Thinking chunks (optional) ---
                 if stream_thinking:
                     for thought in thinking_parts:
                         if thought not in seen_thinking:
                             seen_thinking.add(thought)
                             yield _make_chunk(
-                                content=f"<think>{thought}</think>\n",
-                                reasoning_content=thought,
+                                f"<thinking>{thought}</thinking>\n"
                             )
 
                 if not text_only:
                     continue  # Nothing left after stripping thinking
 
                 # --- Text deduplication ---
-                delta_text = ""
                 if text_only in seen_exact:
-                    logger.debug("stream_skip_exact_dup", text=text_only[:100])
-                elif text_only.startswith(total_sent_text):
+                    continue
+                seen_exact.add(text_only)
+
+                if text_only.startswith(total_sent_text):
+                    # Accumulated extension — yield only the new suffix
                     delta_text = text_only[len(total_sent_text) :]
                     total_sent_text = text_only
-                    seen_exact.add(text_only)
-                elif total_sent_text and text_only in total_sent_text:
-                    logger.debug(
-                        "stream_skip_substring", text=text_only[:100]
-                    )
                 else:
+                    # New assistant turn — yield with separator
                     delta_text = (
                         ("\n" + text_only) if total_sent_text else text_only
                     )
                     total_sent_text += delta_text
-                    seen_exact.add(text_only)
 
                 if delta_text:
-                    logger.debug(
-                        "stream_yielding_delta",
-                        delta_len=len(delta_text),
-                        delta_preview=delta_text[:200],
-                    )
-                    yield _make_chunk(content=delta_text)
+                    yield _make_chunk(delta_text)
 
     finally:
         if not task.done():
@@ -431,6 +431,10 @@ async def _stream_response(
                     "Claude streaming task failed",
                     error=str(exc),
                 )
+            elif storage:
+                # Task completed successfully — track cost
+                response: ClaudeResponse = task.result()
+                await _track_api_cost(storage, prompt, response)
 
     # Final chunk with finish_reason
     final_chunk = ChatCompletionChunk(
@@ -444,5 +448,5 @@ async def _stream_response(
             ),
         ],
     )
-    yield f"data: {final_chunk.model_dump_json(exclude_none=True)}\n\n"
+    yield f"data: {final_chunk.model_dump_json()}\n\n"
     yield "data: [DONE]\n\n"

@@ -22,7 +22,7 @@ from telegram.ext import (
     filters,
 )
 
-from ..claude.sdk_integration import StreamUpdate
+from ..backend.sdk_integration import StreamUpdate
 from ..config.settings import Settings
 from ..projects import PrivateTopicsUnavailableError
 from .utils.html_format import escape_html

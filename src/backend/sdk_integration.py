@@ -267,10 +267,6 @@ class ClaudeSDKManager:
                 stderr=_stderr_callback,
             )
 
-            # Enable extended thinking if configured
-            if getattr(self.config, "api_stream_thinking", False):
-                options.thinking = {"type": "enabled", "budget_tokens": 10000}
-
             # Pass MCP server configuration if enabled
             if self.config.enable_mcp and self.config.mcp_config_path:
                 options.mcp_servers = self._load_mcp_config(self.config.mcp_config_path)

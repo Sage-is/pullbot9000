@@ -86,3 +86,12 @@ DEFAULT_CLAUDE_OUTPUT_FORMAT = "stream-json"
 
 # Logging
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# --- Sage API user ---
+# The OpenAI-compatible API endpoint uses a single shared user_id for all
+# requests. This is intentional: all API clients share one Claude conversation
+# context, which is what you want when multiple tools (Cursor, Continue, curl,
+# etc.) are talking to the same Sage assistant. Telegram users have real
+# Telegram IDs and are isolated from this shared Sage context.
+SAGE_API_USER_ID = 0
+SAGE_API_USERNAME = "sage"

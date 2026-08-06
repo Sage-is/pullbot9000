@@ -7,7 +7,7 @@ import structlog
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from ...claude.exceptions import (
+from ...backend.exceptions import (
     ClaudeError,
     ClaudeMCPError,
     ClaudeParsingError,

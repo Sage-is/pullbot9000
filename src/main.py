@@ -1,4 +1,4 @@
-"""Main entry point for Sage-Bot."""
+"""Main entry point for Claude Code Telegram Bot."""
 
 import argparse
 import asyncio
@@ -12,11 +12,13 @@ import structlog
 
 from src import __version__
 from src.bot.core import ClaudeCodeBot
-from src.claude import (
+from src.backend import (
     ClaudeIntegration,
     SessionManager,
 )
-from src.claude.sdk_integration import ClaudeSDKManager
+from src.backend.sdk_integration import ClaudeSDKManager
+from src.backend.opencode_integration import OpenCodeManager
+from src.backend.opencode_server import OpenCodeServer
 from src.config.features import FeatureFlags
 from src.config.settings import Settings
 from src.events.bus import EventBus
@@ -140,9 +142,17 @@ async def create_application(config: Settings) -> Dict[str, Any]:
     session_storage = SQLiteSessionStorage(storage.db_manager)
     session_manager = SessionManager(config, session_storage)
 
-    # Create Claude SDK manager and integration facade
-    logger.info("Using Claude Python SDK integration")
-    sdk_manager = ClaudeSDKManager(config, security_validator=security_validator)
+    # Create backend manager based on config.backend
+    opencode_server: Optional[OpenCodeServer] = None
+    if config.backend == "opencode":
+        logger.info("Using OpenCode HTTP API backend")
+        if config.opencode_auto_start:
+            opencode_server = OpenCodeServer(config)
+            await opencode_server.start()
+        sdk_manager = OpenCodeManager(config, security_validator=security_validator)
+    else:
+        logger.info("Using Claude Python SDK backend")
+        sdk_manager = ClaudeSDKManager(config, security_validator=security_validator)
 
     claude_integration = ClaudeIntegration(
         config=config,
@@ -201,6 +211,7 @@ async def create_application(config: Settings) -> Dict[str, Any]:
         "agent_handler": agent_handler,
         "auth_manager": auth_manager,
         "security_validator": security_validator,
+        "opencode_server": opencode_server,
     }
 
 
@@ -302,7 +313,8 @@ async def run_application(app: Dict[str, Any]) -> None:
 
             api_task = asyncio.create_task(
                 run_api_server(
-                    event_bus, config, storage.db_manager, claude_integration
+                    event_bus, config, storage.db_manager, claude_integration,
+                    storage=storage,
                 )
             )
             tasks.append(api_task)
@@ -361,6 +373,9 @@ async def run_application(app: Dict[str, Any]) -> None:
             await event_bus.stop()
             await bot.stop()
             await claude_integration.shutdown()
+            opencode_server = app.get("opencode_server")
+            if opencode_server:
+                opencode_server.stop()
             await storage.close()
         except Exception as e:
             logger.error("Error during shutdown", error=str(e))

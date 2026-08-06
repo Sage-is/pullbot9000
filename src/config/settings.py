@@ -62,6 +62,29 @@ class Settings(BaseSettings):
         description="Allow all Claude tools by bypassing tool validation checks",
     )
 
+    # Backend selection
+    backend: Literal["claude", "opencode"] = Field(
+        "claude",
+        description="AI backend: 'claude' (Claude Code SDK) or 'opencode' (OpenCode HTTP API)",
+    )
+
+    # OpenCode settings (used when backend=opencode)
+    opencode_server_port: int = Field(
+        4096, description="OpenCode server port"
+    )
+    opencode_server_host: str = Field(
+        "127.0.0.1", description="OpenCode server hostname"
+    )
+    opencode_server_password: Optional[str] = Field(
+        None, description="OpenCode server HTTP basic auth password"
+    )
+    opencode_cli_path: Optional[str] = Field(
+        None, description="Path to opencode CLI executable"
+    )
+    opencode_auto_start: bool = Field(
+        True, description="Auto-start OpenCode server as sidecar on bot startup"
+    )
+
     # Claude settings
     claude_binary_path: Optional[str] = Field(
         None, description="Path to Claude CLI binary (deprecated)"
@@ -195,6 +218,15 @@ class Settings(BaseSettings):
 
     # Agentic platform settings
     enable_api_server: bool = Field(False, description="Enable FastAPI webhook server")
+    api_server_host: str = Field(
+        "0.0.0.0",
+        description=(
+            "API server bind address. Default 0.0.0.0 listens on ALL network "
+            "interfaces — the API is reachable from your entire LAN. "
+            "Set to 127.0.0.1 for localhost-only, or a specific IP "
+            "(e.g. 10.55.0.1) to bind to one interface."
+        ),
+    )
     api_server_port: int = Field(8080, description="Webhook API server port")
     api_stream_thinking: bool = Field(
         False,

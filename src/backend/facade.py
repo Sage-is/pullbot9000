@@ -1,10 +1,11 @@
 """High-level Claude Code integration facade.
 
-Provides simple interface for bot handlers.
+Provides simple interface for bot handlers. Supports both Claude Code SDK
+and OpenCode HTTP API backends, selected via config.backend.
 """
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import structlog
 
@@ -16,17 +17,28 @@ logger = structlog.get_logger()
 
 
 class ClaudeIntegration:
-    """Main integration point for Claude Code."""
+    """Main integration point for AI backend (Claude Code or OpenCode)."""
 
     def __init__(
         self,
         config: Settings,
-        sdk_manager: Optional[ClaudeSDKManager] = None,
+        sdk_manager: Optional[Union[ClaudeSDKManager, Any]] = None,
         session_manager: Optional[SessionManager] = None,
     ):
-        """Initialize Claude integration facade."""
+        """Initialize integration facade.
+
+        If sdk_manager is provided, use it directly (any backend).
+        Otherwise, create the appropriate manager based on config.backend.
+        """
         self.config = config
-        self.sdk_manager = sdk_manager or ClaudeSDKManager(config)
+        if sdk_manager is not None:
+            self.sdk_manager = sdk_manager
+        elif config.backend == "opencode":
+            from .opencode_integration import OpenCodeManager
+
+            self.sdk_manager = OpenCodeManager(config)
+        else:
+            self.sdk_manager = ClaudeSDKManager(config)
         self.session_manager = session_manager
 
     async def run_command(
