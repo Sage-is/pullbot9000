@@ -16,7 +16,6 @@ Renamed `src/claude/` to `src/backend/` for clarity across both backends.
 ## In Progress
 
 ## TODO
-- [ ] **Integration test**: End-to-end test with OpenCode server running. #task
 
 ## Backlog
 
@@ -41,3 +40,4 @@ Renamed `src/claude/` to `src/backend/` for clarity across both backends.
 - [x] **Tool permission interceptor**: `_validate_tool()` in `OpenCodeManager` checks file paths and bash boundaries against `SecurityValidator` on tool-use events.
 - [x] **Directory rename**: `src/claude/` to `src/backend/`, all imports updated, 203 tests pass.
 - [x] **Makefile update**: `check-deps`, `setup-claude`, `setup-opencode` targets. Serve targets add OpenCode pane when `BACKEND=opencode`. — [decision](makefile-update.md)
+- [x] **Integration test**: 43 unit tests for `OpenCodeManager` and `OpenCodeServer`. Mocked HTTP/subprocess. — [decision](integration-test.md)
