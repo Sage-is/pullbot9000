@@ -27,16 +27,6 @@ def _make_config(tmp_path: Path, **overrides: Any) -> Settings:
     return Settings(**defaults)
 
 
-def _sse_lines(events: List[Dict[str, Any]], done: bool = True) -> str:
-    """Build a raw SSE response body from a list of event dicts."""
-    lines = []
-    for ev in events:
-        lines.append(f"data: {json.dumps(ev)}\n\n")
-    if done:
-        lines.append("data: [DONE]\n\n")
-    return "".join(lines)
-
-
 def _session_response(session_id: str = "oc-session-1") -> httpx.Response:
     return httpx.Response(
         200,
@@ -44,8 +34,31 @@ def _session_response(session_id: str = "oc-session-1") -> httpx.Response:
     )
 
 
-def _message_accepted() -> httpx.Response:
-    return httpx.Response(202, json={"ok": True})
+def _message_response(
+    text: str = "Hello!",
+    cost: float = 0.0,
+    parts: Optional[List[Dict[str, Any]]] = None,
+) -> httpx.Response:
+    if parts is None:
+        parts = [
+            {"type": "step-start", "id": "prt_1"},
+            {"type": "text", "text": text, "id": "prt_2"},
+            {"type": "step-finish", "cost": cost, "id": "prt_3"},
+        ]
+    return httpx.Response(
+        200,
+        json={
+            "info": {
+                "id": "msg_1",
+                "role": "assistant",
+                "cost": cost,
+                "tokens": {"input": 100, "output": 20},
+                "finish": "stop",
+                "sessionID": "ses_1",
+            },
+            "parts": parts,
+        },
+    )
 
 
 class TestOpenCodeManagerInit:
@@ -135,12 +148,12 @@ class TestProcessEvent:
     def setup_method(self, tmp_path: Path = Path("/tmp")) -> None:
         self.working_dir = Path("/tmp/project")
 
-    def test_content_delta(self, tmp_path: Path) -> None:
+    def test_message_part_delta(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
         mgr = OpenCodeManager(config)
         finished, text, tool, cost = mgr._process_event(
-            "content.delta",
-            {"properties": {"delta": "Hello world"}},
+            "message.part.delta",
+            {"delta": "Hello world"},
             self.working_dir,
         )
         assert not finished
@@ -148,21 +161,25 @@ class TestProcessEvent:
         assert tool is None
         assert cost is None
 
-    def test_content_done_not_finished(self, tmp_path: Path) -> None:
+    def test_message_part_updated_text(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
         mgr = OpenCodeManager(config)
         finished, text, tool, cost = mgr._process_event(
-            "content.done", {}, self.working_dir
+            "message.part.updated",
+            {"part": {"type": "text", "text": "Complete response"}},
+            self.working_dir,
         )
         assert not finished
+        assert text == "Complete response"
 
-    def test_tool_use_start(self, tmp_path: Path) -> None:
+    def test_message_part_updated_tool_use(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
         mgr = OpenCodeManager(config)
         finished, text, tool, cost = mgr._process_event(
-            "tool_use.start",
+            "message.part.updated",
             {
-                "properties": {
+                "part": {
+                    "type": "tool-use",
                     "name": "Grep",
                     "input": {"pattern": "foo"},
                     "id": "tool-1",
@@ -175,50 +192,46 @@ class TestProcessEvent:
         assert tool["name"] == "Grep"
         assert tool["id"] == "tool-1"
 
-    def test_thinking_delta(self, tmp_path: Path) -> None:
+    def test_message_part_updated_step_finish_with_cost(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
         mgr = OpenCodeManager(config)
         finished, text, tool, cost = mgr._process_event(
-            "thinking.delta",
-            {"properties": {"delta": "Let me think..."}},
+            "message.part.updated",
+            {"part": {"type": "step-finish", "cost": 0.05}},
             self.working_dir,
         )
         assert not finished
-        assert text == "<thinking>Let me think...</thinking>"
-
-    def test_message_complete(self, tmp_path: Path) -> None:
-        config = _make_config(tmp_path)
-        mgr = OpenCodeManager(config)
-        finished, text, tool, cost = mgr._process_event(
-            "message.complete",
-            {"properties": {"cost": 0.05, "result": "Done."}},
-            self.working_dir,
-        )
-        assert finished
-        assert text == "Done."
         assert cost == 0.05
 
-    def test_result_event(self, tmp_path: Path) -> None:
+    def test_session_idle_finishes(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
         mgr = OpenCodeManager(config)
         finished, text, tool, cost = mgr._process_event(
-            "result",
-            {"properties": {"total_cost_usd": 0.12, "text": "Final answer"}},
+            "session.idle",
+            {},
             self.working_dir,
         )
         assert finished
-        assert text == "Final answer"
-        assert cost == 0.12
 
-    def test_error_event_raises(self, tmp_path: Path) -> None:
+    def test_session_updated_idle_finishes(self, tmp_path: Path) -> None:
         config = _make_config(tmp_path)
         mgr = OpenCodeManager(config)
-        with pytest.raises(ClaudeProcessError, match="Something broke"):
-            mgr._process_event(
-                "error",
-                {"properties": {"message": "Something broke"}},
-                self.working_dir,
-            )
+        finished, text, tool, cost = mgr._process_event(
+            "session.updated",
+            {"info": {"status": "idle"}},
+            self.working_dir,
+        )
+        assert finished
+
+    def test_session_updated_busy_not_finished(self, tmp_path: Path) -> None:
+        config = _make_config(tmp_path)
+        mgr = OpenCodeManager(config)
+        finished, text, tool, cost = mgr._process_event(
+            "session.updated",
+            {"info": {"status": "busy"}},
+            self.working_dir,
+        )
+        assert not finished
 
 
 class TestValidateTool:
@@ -291,6 +304,119 @@ class TestValidateTool:
                 tmp_path,
             )
             validator.validate_path.assert_not_called()
+
+
+class TestSendAndStream:
+
+    async def test_parses_text_parts(self, tmp_path: Path) -> None:
+        config = _make_config(tmp_path)
+        mgr = OpenCodeManager(config)
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            return_value=_message_response(text="Hello from OpenCode", cost=0.05)
+        )
+
+        content, tools, cost, turns = await mgr._send_and_stream(
+            mock_client, "ses_1", "say hello", tmp_path, None
+        )
+        assert content == "Hello from OpenCode"
+        assert tools == []
+        assert cost == 0.05
+        assert turns == 1
+
+    async def test_parses_tool_use_parts(self, tmp_path: Path) -> None:
+        config = _make_config(tmp_path)
+        mgr = OpenCodeManager(config)
+
+        parts = [
+            {"type": "step-start", "id": "prt_1"},
+            {"type": "tool-use", "name": "Grep", "input": {"pattern": "foo"}, "id": "prt_2"},
+            {"type": "text", "text": "Found matches", "id": "prt_3"},
+            {"type": "step-finish", "cost": 0.0, "id": "prt_4"},
+        ]
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            return_value=_message_response(parts=parts)
+        )
+
+        content, tools, cost, turns = await mgr._send_and_stream(
+            mock_client, "ses_1", "search", tmp_path, None
+        )
+        assert content == "Found matches"
+        assert len(tools) == 1
+        assert tools[0]["name"] == "Grep"
+
+    async def test_sse_callback_fires_for_text(self, tmp_path: Path) -> None:
+        """Stream callbacks fire via _handle_sse_data (SSE event path)."""
+        config = _make_config(tmp_path)
+        mgr = OpenCodeManager(config)
+        callback = AsyncMock()
+
+        raw = json.dumps({
+            "type": "message.part.updated",
+            "data": {
+                "sessionID": "ses_1",
+                "part": {"type": "text", "text": "Hi there"},
+            },
+        })
+        await mgr._handle_sse_data(raw, "ses_1", tmp_path, callback)
+        callback.assert_called_once()
+        update = callback.call_args[0][0]
+        assert update.content == "Hi there"
+
+    async def test_sse_callback_fires_for_tool(self, tmp_path: Path) -> None:
+        """Stream callbacks fire for tool-use SSE events."""
+        config = _make_config(tmp_path)
+        mgr = OpenCodeManager(config)
+        callback = AsyncMock()
+
+        raw = json.dumps({
+            "type": "message.part.updated",
+            "data": {
+                "sessionID": "ses_1",
+                "part": {
+                    "type": "tool-use",
+                    "name": "Bash",
+                    "input": {"command": "ls"},
+                    "id": "tool-1",
+                },
+            },
+        })
+        await mgr._handle_sse_data(raw, "ses_1", tmp_path, callback)
+        callback.assert_called_once()
+        update = callback.call_args[0][0]
+        assert update.tool_calls[0]["name"] == "Bash"
+
+    async def test_sse_ignores_other_sessions(self, tmp_path: Path) -> None:
+        """SSE events for different sessions are ignored."""
+        config = _make_config(tmp_path)
+        mgr = OpenCodeManager(config)
+        callback = AsyncMock()
+
+        raw = json.dumps({
+            "type": "message.part.updated",
+            "data": {
+                "sessionID": "ses_other",
+                "part": {"type": "text", "text": "Not mine"},
+            },
+        })
+        await mgr._handle_sse_data(raw, "ses_1", tmp_path, callback)
+        callback.assert_not_called()
+
+    async def test_error_status_raises(self, tmp_path: Path) -> None:
+        config = _make_config(tmp_path)
+        mgr = OpenCodeManager(config)
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            return_value=httpx.Response(500, text="Internal Error")
+        )
+
+        with pytest.raises(ClaudeProcessError, match="500"):
+            await mgr._send_and_stream(
+                mock_client, "ses_1", "hello", tmp_path, None
+            )
 
 
 class TestExecuteCommand:

@@ -163,7 +163,12 @@ class OpenCodeManager:
         working_directory: Path,
         stream_callback: Optional[Callable[[StreamUpdate], None]],
     ) -> tuple:
-        """Send prompt and stream the response via SSE.
+        """Send prompt and stream progress via SSE.
+
+        Subscribes to /api/event SSE for real-time progress while the
+        blocking POST /session/{id}/message runs concurrently.  The SSE
+        listener fires stream_callback with tool and text events as they
+        arrive — giving Telegram users live feedback instead of silence.
 
         Returns (content, tools_used, total_cost, num_turns).
         """
@@ -171,91 +176,164 @@ class OpenCodeManager:
             "parts": [{"type": "text", "text": prompt}],
         }
 
-        resp = await client.post(
-            f"/session/{session_id}/message",
-            json=body,
-        )
+        sse_task: Optional[asyncio.Task] = None
+        if stream_callback:
+            sse_task = asyncio.create_task(
+                self._listen_sse(
+                    session_id, working_directory, stream_callback
+                )
+            )
+            await asyncio.sleep(0.1)
+
+        try:
+            resp = await client.post(
+                f"/session/{session_id}/message",
+                json=body,
+            )
+        finally:
+            if sse_task and not sse_task.done():
+                sse_task.cancel()
+                try:
+                    await sse_task
+                except asyncio.CancelledError:
+                    pass
 
         if resp.status_code not in (200, 201, 202):
             raise ClaudeProcessError(
                 f"OpenCode message failed: {resp.status_code} {resp.text}"
             )
 
+        data = resp.json()
+        info = data.get("info", {})
+        parts = data.get("parts", [])
+
         content_parts: List[str] = []
         tools_used: List[Dict[str, Any]] = []
-        total_cost = 0.0
-        num_turns = 0
+        total_cost = info.get("cost", 0.0) or 0.0
+        num_turns = 1
 
-        # Stream events via SSE
-        try:
-            async with client.stream(
-                "GET",
-                "/event",
-                headers={"Accept": "text/event-stream"},
-            ) as sse_resp:
-                async for line in sse_resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
+        for part in parts:
+            part_type = part.get("type", "")
 
-                    raw = line[6:]
-                    if raw == "[DONE]":
-                        break
+            if part_type == "text":
+                text = part.get("text", "")
+                if text:
+                    content_parts.append(text)
 
-                    try:
-                        event = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
+            elif part_type == "tool-use":
+                tool_name = part.get("name", "unknown")
+                tool_input = part.get("input", {})
+                self._validate_tool(tool_name, tool_input, working_directory)
+                tools_used.append({
+                    "name": tool_name,
+                    "input": tool_input,
+                    "id": part.get("id"),
+                    "timestamp": time.monotonic(),
+                })
 
-                    event_type = event.get("type", "")
-                    finished, text, tool, cost = self._process_event(
-                        event_type, event, working_directory
-                    )
-
-                    if text:
-                        content_parts.append(text)
-                    if tool:
-                        tools_used.append(tool)
-                    if cost:
-                        total_cost += cost
-
-                    if event_type in (
-                        "message.created",
-                        "message.updated",
-                    ):
-                        role = event.get("properties", {}).get("role")
-                        if role in ("user", "assistant"):
-                            num_turns += 1
-
-                    if stream_callback and (text or tool):
-                        update = StreamUpdate(
-                            type="assistant",
-                            content=text,
-                            tool_calls=[tool] if tool else None,
-                        )
-                        try:
-                            await stream_callback(update)
-                        except Exception as cb_err:
-                            logger.warning(
-                                "Stream callback error", error=str(cb_err)
-                            )
-
-                    if finished:
-                        break
-
-        except httpx.ReadTimeout:
-            logger.debug("SSE stream timed out (normal on completion)")
+            elif part_type == "step-finish":
+                step_cost = part.get("cost")
+                if step_cost:
+                    total_cost = max(total_cost, step_cost)
 
         content = "\n".join(content_parts) if content_parts else ""
 
         return content, tools_used, total_cost, num_turns
 
+    async def _listen_sse(
+        self,
+        session_id: str,
+        working_directory: Path,
+        stream_callback: Callable[[StreamUpdate], None],
+    ) -> None:
+        """Subscribe to /api/event SSE and fire stream_callback for
+        events belonging to our session.
+        """
+        timeout = httpx.Timeout(
+            connect=5.0,
+            read=float(self.config.claude_timeout_seconds),
+            write=5.0,
+            pool=5.0,
+        )
+        try:
+            async with httpx.AsyncClient(
+                base_url=self._base_url, auth=self._auth, timeout=timeout
+            ) as sse_client:
+                async with sse_client.stream(
+                    "GET",
+                    "/api/event",
+                    headers={"Accept": "text/event-stream"},
+                ) as response:
+                    buf = ""
+                    async for chunk in response.aiter_text():
+                        buf += chunk
+                        while "\n" in buf:
+                            line, buf = buf.split("\n", 1)
+                            line = line.strip()
+                            if not line or line.startswith(":"):
+                                continue
+                            if not line.startswith("data: "):
+                                continue
+                            raw = line[6:]
+                            await self._handle_sse_data(
+                                raw,
+                                session_id,
+                                working_directory,
+                                stream_callback,
+                            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.debug("SSE listener ended", reason=str(e))
+
+    async def _handle_sse_data(
+        self,
+        raw: str,
+        session_id: str,
+        working_directory: Path,
+        stream_callback: Callable[[StreamUpdate], None],
+    ) -> None:
+        """Parse one SSE data line and fire callback if relevant."""
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            return
+
+        event_data = event.get("data", {})
+        if event_data.get("sessionID") != session_id:
+            return
+
+        event_type = event.get("type", "")
+        finished, text, tool, cost = self._process_event(
+            event_type, event_data, working_directory
+        )
+
+        if text:
+            try:
+                await stream_callback(
+                    StreamUpdate(type="assistant", content=text)
+                )
+            except Exception as cb_err:
+                logger.warning("Stream callback error", error=str(cb_err))
+
+        if tool:
+            try:
+                await stream_callback(
+                    StreamUpdate(type="assistant", content=None, tool_calls=[tool])
+                )
+            except Exception as cb_err:
+                logger.warning("Stream callback error", error=str(cb_err))
+
     def _process_event(
         self,
         event_type: str,
-        event: Dict[str, Any],
+        event_data: Dict[str, Any],
         working_directory: Path,
     ) -> tuple:
-        """Process a single SSE event.
+        """Process a single OpenCode SSE event.
+
+        Event types: message.part.delta, message.part.updated,
+        session.idle, session.status.
 
         Returns (finished, text, tool_dict, cost).
         """
@@ -264,44 +342,44 @@ class OpenCodeManager:
         cost: Optional[float] = None
         finished = False
 
-        if event_type == "content.delta":
-            delta = event.get("properties", {}).get("delta", "")
+        if event_type == "message.part.delta":
+            delta = event_data.get("delta", "")
             if delta:
                 text = delta
 
-        elif event_type == "content.done":
-            finished = False
+        elif event_type == "message.part.updated":
+            part = event_data.get("part", {})
+            part_type = part.get("type", "")
 
-        elif event_type == "tool_use.start":
-            props = event.get("properties", {})
-            tool_name = props.get("name", "unknown")
-            tool_input = props.get("input", {})
+            if part_type == "text":
+                part_text = part.get("text", "")
+                if part_text:
+                    text = part_text
 
-            self._validate_tool(tool_name, tool_input, working_directory)
+            elif part_type == "tool-use":
+                tool_name = part.get("name", "unknown")
+                tool_input = part.get("input", {})
+                self._validate_tool(tool_name, tool_input, working_directory)
+                tool = {
+                    "name": tool_name,
+                    "input": tool_input,
+                    "id": part.get("id"),
+                    "timestamp": time.monotonic(),
+                }
 
-            tool = {
-                "name": tool_name,
-                "input": tool_input,
-                "id": props.get("id"),
-                "timestamp": time.monotonic(),
-            }
+            elif part_type == "step-finish":
+                step_cost = part.get("cost")
+                if step_cost:
+                    cost = step_cost
 
-        elif event_type == "thinking.delta":
-            delta = event.get("properties", {}).get("delta", "")
-            if delta:
-                text = f"<thinking>{delta}</thinking>"
-
-        elif event_type in ("message.complete", "result"):
+        elif event_type == "session.idle":
             finished = True
-            props = event.get("properties", {})
-            cost = props.get("cost") or props.get("total_cost_usd")
-            result_text = props.get("result") or props.get("text")
-            if result_text:
-                text = result_text
 
-        elif event_type == "error":
-            error_msg = event.get("properties", {}).get("message", "Unknown error")
-            raise ClaudeProcessError(f"OpenCode error: {error_msg}")
+        elif event_type == "session.updated":
+            info = event_data.get("info", {})
+            status = info.get("status")
+            if status == "idle":
+                finished = True
 
         return finished, text, tool, cost
 
