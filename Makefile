@@ -18,6 +18,7 @@ help:
 	@echo "  serve         - Run bot + API server + cloudflared tunnel together"
 	@echo "  serve-bg      - Start serve detached (no attach) — for systemd/autostart"
 	@echo "  serve-stop    - Stop the serve tmux session"
+	@echo "  (tmux session: $(SESSION_NAME))"
 	@echo "  version       - Show current version"
 	@echo "  bump-patch    - Bump patch version (1.2.0 -> 1.2.1), commit, and tag"
 	@echo "  bump-minor    - Bump minor version (1.2.0 -> 1.3.0), commit, and tag"
@@ -118,6 +119,13 @@ BACKEND := $(if $(BACKEND),$(BACKEND),claude)
 OPENCODE_PORT ?= $(shell grep -E '^OPENCODE_SERVER_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 4096)
 OPENCODE_PORT := $(if $(OPENCODE_PORT),$(OPENCODE_PORT),4096)
 
+# Approved directory from .env — OpenCode server must start here for sandboxing
+APPROVED_DIR ?= $(shell grep -E '^APPROVED_DIRECTORY=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ')
+APPROVED_DIR := $(if $(APPROVED_DIR),$(APPROVED_DIR),$(CURDIR))
+
+# Tmux session name — derived from directory so sibling deployments don't collide
+SESSION_NAME := serve-$(notdir $(CURDIR))
+
 tunnel:  ## Expose the API server to the web via cloudflared
 	@if [ -f .env ] && grep -q '^WEBHOOK_API_SECRET=.\+' .env; then \
 		echo "API key is set — bearer auth will be enforced."; \
@@ -137,65 +145,65 @@ serve:  ## Run bot + API + tunnel (+ opencode server if BACKEND=opencode)
 		echo "The API will be open to anyone with the tunnel URL!"; \
 		echo "Generate one with: openssl rand -hex 32"; \
 	fi
-	@if tmux has-session -t serve 2>/dev/null; then \
-		echo "Killing existing 'serve' tmux session..."; \
-		tmux kill-session -t serve; \
+	@if tmux has-session -t $(SESSION_NAME) 2>/dev/null; then \
+		echo "Killing existing '$(SESSION_NAME)' tmux session..."; \
+		tmux kill-session -t $(SESSION_NAME); \
 	fi
-	@echo "Starting serve: backend=$(BACKEND) bot + api (port $(TUNNEL_PORT)) + tunnel"
+	@echo "Starting $(SESSION_NAME): backend=$(BACKEND) bot + api (port $(TUNNEL_PORT)) + tunnel"
 	@if [ -n "$$TMUX" ]; then \
-		echo "Inside tmux — creating new 'serve' window in current session..."; \
-		tmux kill-window -t serve 2>/dev/null || true; \
+		echo "Inside tmux — creating new '$(SESSION_NAME)' window in current session..."; \
+		tmux kill-window -t $(SESSION_NAME) 2>/dev/null || true; \
 		if [ "$(BACKEND)" = "opencode" ]; then \
-			tmux new-window -n serve \
-				"opencode serve --port $(OPENCODE_PORT); echo '--- opencode exited, press enter to close ---'; read"; \
-			tmux split-window -v -t serve \
+			tmux new-window -n $(SESSION_NAME) \
+				"cd $(APPROVED_DIR) && opencode serve --port $(OPENCODE_PORT); echo '--- opencode exited, press enter to close ---'; read"; \
+			tmux split-window -v -t $(SESSION_NAME) \
 				"env -u CLAUDECODE uv run sage-is-agent-bot; echo '--- bot exited, press enter to close ---'; read"; \
 		else \
-			tmux new-window -n serve \
+			tmux new-window -n $(SESSION_NAME) \
 				"env -u CLAUDECODE uv run sage-is-agent-bot; echo '--- bot exited, press enter to close ---'; read"; \
 		fi; \
-		tmux split-window -v -t serve \
+		tmux split-window -v -t $(SESSION_NAME) \
 			"uv run claude-api-server; echo '--- api exited, press enter to close ---'; read"; \
-		tmux split-window -h -t serve \
+		tmux split-window -h -t $(SESSION_NAME) \
 			"cloudflared tunnel --url http://localhost:$(TUNNEL_PORT); echo '--- tunnel exited, press enter to close ---'; read"; \
-		tmux select-layout -t serve main-horizontal; \
-		tmux select-pane -t serve.0; \
+		tmux select-layout -t $(SESSION_NAME) main-horizontal; \
+		tmux select-pane -t $(SESSION_NAME).0; \
 	else \
 		$(MAKE) serve-bg; \
-		tmux attach -t serve; \
+		tmux attach -t $(SESSION_NAME); \
 	fi
 
 serve-bg:  ## Start serve detached (+ opencode server if BACKEND=opencode)
-	@if tmux has-session -t serve 2>/dev/null; then \
-		echo "'serve' session already running — use 'make serve-stop' first"; \
+	@if tmux has-session -t $(SESSION_NAME) 2>/dev/null; then \
+		echo "'$(SESSION_NAME)' session already running — use 'make serve-stop' first"; \
 	else \
-		echo "Starting serve (detached): backend=$(BACKEND) bot + api (port $(TUNNEL_PORT)) + tunnel"; \
+		echo "Starting $(SESSION_NAME) (detached): backend=$(BACKEND) bot + api (port $(TUNNEL_PORT)) + tunnel"; \
 		if [ "$(BACKEND)" = "opencode" ]; then \
-			tmux new-session -d -s serve -n bot -c $(CURDIR) \
-				"opencode serve --port $(OPENCODE_PORT); echo '--- opencode exited, press enter to close ---'; read" \; \
-				split-window -v -t serve:bot -c $(CURDIR) \
+			tmux new-session -d -s $(SESSION_NAME) -n bot -c $(CURDIR) \
+				"cd $(APPROVED_DIR) && opencode serve --port $(OPENCODE_PORT); echo '--- opencode exited, press enter to close ---'; read" \; \
+				split-window -v -t $(SESSION_NAME):bot -c $(CURDIR) \
 				"env -u CLAUDECODE uv run sage-is-agent-bot; echo '--- bot exited, press enter to close ---'; read" \; \
-				split-window -v -t serve:bot -c $(CURDIR) \
+				split-window -v -t $(SESSION_NAME):bot -c $(CURDIR) \
 				"uv run claude-api-server; echo '--- api exited, press enter to close ---'; read" \; \
-				split-window -h -t serve:bot -c $(CURDIR) \
+				split-window -h -t $(SESSION_NAME):bot -c $(CURDIR) \
 				"cloudflared tunnel --url http://localhost:$(TUNNEL_PORT); echo '--- tunnel exited, press enter to close ---'; read" \; \
-				select-layout -t serve:bot main-horizontal \; \
-				select-pane -t serve:bot.0; \
+				select-layout -t $(SESSION_NAME):bot main-horizontal \; \
+				select-pane -t $(SESSION_NAME):bot.0; \
 		else \
-			tmux new-session -d -s serve -n bot -c $(CURDIR) \
+			tmux new-session -d -s $(SESSION_NAME) -n bot -c $(CURDIR) \
 				"env -u CLAUDECODE uv run sage-is-agent-bot; echo '--- bot exited, press enter to close ---'; read" \; \
-				split-window -v -t serve:bot -c $(CURDIR) \
+				split-window -v -t $(SESSION_NAME):bot -c $(CURDIR) \
 				"uv run claude-api-server; echo '--- api exited, press enter to close ---'; read" \; \
-				split-window -h -t serve:bot -c $(CURDIR) \
+				split-window -h -t $(SESSION_NAME):bot -c $(CURDIR) \
 				"cloudflared tunnel --url http://localhost:$(TUNNEL_PORT); echo '--- tunnel exited, press enter to close ---'; read" \; \
-				select-layout -t serve:bot main-horizontal \; \
-				select-pane -t serve:bot.0; \
+				select-layout -t $(SESSION_NAME):bot main-horizontal \; \
+				select-pane -t $(SESSION_NAME):bot.0; \
 		fi; \
-		echo "Attach anytime with: tmux attach -t serve"; \
+		echo "Attach anytime with: tmux attach -t $(SESSION_NAME)"; \
 	fi
 
 serve-stop:  ## Stop the serve tmux session
-	@tmux kill-session -t serve 2>/dev/null && echo "'serve' session stopped" || echo "No 'serve' session running"
+	@tmux kill-session -t $(SESSION_NAME) 2>/dev/null && echo "'$(SESSION_NAME)' session stopped" || echo "No '$(SESSION_NAME)' session running"
 
 # --- Version Management ---
 

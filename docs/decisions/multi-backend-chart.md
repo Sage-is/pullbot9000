@@ -8,7 +8,7 @@ own manager class behind `ClaudeIntegration` (or a renamed facade). No dynamic p
 discovery — each backend is a known module wired through config.
 
 Target harnesses beyond the existing two (Claude Code, OpenCode):
-- **Pi** (Inflection) — conversational AI agent
+- **Pi** (https://pi.dev/) — minimal terminal coding harness, extensible via TypeScript extensions/skills/packages
 - **Hermes** (Nous Research) — open-weight model family, needs agent wrapper
 - **Downes** (Sage-is) — autonomous education agent, Python SDK + WebSocket
 
