@@ -19,6 +19,12 @@ Quick links to every doc in this project. Start with the [README](../README.md) 
 | [Project Overview](project-overview.md) | Architecture, core objectives, request flow diagrams, and design decisions |
 | [SDK Duplication Review](SDK_DUPLICATION_REVIEW.md) | Audit of `src/claude/` against the Claude Agent SDK — what to simplify or remove |
 
+## Stories
+
+| Document | Description |
+|----------|-------------|
+| [The Dweller Who Never Slept](fable.md) | A fable about the Resident Agent Daemon™ — memory, walls, and the four doors |
+
 ## Repository-Level
 
 | Document | Description |
