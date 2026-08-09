@@ -19,6 +19,7 @@ from .auth import verify_github_signature, verify_shared_secret
 
 if TYPE_CHECKING:
     from ..backend.facade import ClaudeIntegration
+    from ..scheduler.scheduler import JobScheduler
 
 logger = structlog.get_logger()
 
@@ -29,6 +30,7 @@ def create_api_app(
     db_manager: Optional[DatabaseManager] = None,
     claude_integration: Optional["ClaudeIntegration"] = None,
     storage: Optional[Storage] = None,
+    scheduler: Optional["JobScheduler"] = None,
 ) -> FastAPI:
     """Create the FastAPI application."""
 
@@ -48,14 +50,18 @@ def create_api_app(
         from .openai_compat import create_openai_router
 
         app.include_router(
-            create_openai_router(
-                claude_integration, settings, storage=storage
-            )
+            create_openai_router(claude_integration, settings, storage=storage)
         )
 
     # Webhook routes require an event bus
     if event_bus is None:
         return app
+
+    # Schedule management routes require the job scheduler
+    if scheduler is not None:
+        from .schedules import create_schedules_router
+
+        app.include_router(create_schedules_router(scheduler, settings))
 
     @app.post("/webhooks/{provider}")
     async def receive_webhook(
@@ -198,12 +204,18 @@ async def run_api_server(
     db_manager: Optional[DatabaseManager] = None,
     claude_integration: Optional["ClaudeIntegration"] = None,
     storage: Optional[Storage] = None,
+    scheduler: Optional["JobScheduler"] = None,
 ) -> None:
     """Run the FastAPI server using uvicorn."""
     import uvicorn
 
     app = create_api_app(
-        event_bus, settings, db_manager, claude_integration, storage=storage
+        event_bus,
+        settings,
+        db_manager,
+        claude_integration,
+        storage=storage,
+        scheduler=scheduler,
     )
 
     config = uvicorn.Config(

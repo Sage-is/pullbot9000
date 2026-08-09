@@ -11,14 +11,14 @@ from typing import Any, Dict, Optional
 import structlog
 
 from src import __version__
-from src.bot.core import ClaudeCodeBot
 from src.backend import (
     ClaudeIntegration,
     SessionManager,
 )
-from src.backend.sdk_integration import ClaudeSDKManager
 from src.backend.opencode_integration import OpenCodeManager
 from src.backend.opencode_server import OpenCodeServer
+from src.backend.sdk_integration import ClaudeSDKManager
+from src.bot.core import ClaudeCodeBot
 from src.config.features import FeatureFlags
 from src.config.settings import Settings
 from src.events.bus import EventBus
@@ -307,20 +307,8 @@ async def run_application(app: Dict[str, Any]) -> None:
         bot_task = asyncio.create_task(bot.start())
         tasks.append(bot_task)
 
-        # API server (if enabled)
-        if features.api_server_enabled:
-            from src.api.server import run_api_server
-
-            api_task = asyncio.create_task(
-                run_api_server(
-                    event_bus, config, storage.db_manager, claude_integration,
-                    storage=storage,
-                )
-            )
-            tasks.append(api_task)
-            logger.info("API server enabled", port=config.api_server_port)
-
-        # Scheduler (if enabled)
+        # Scheduler (if enabled) — must exist before the API server so the
+        # schedule routes can use it.
         if features.scheduler_enabled:
             scheduler = JobScheduler(
                 event_bus=event_bus,
@@ -329,6 +317,23 @@ async def run_application(app: Dict[str, Any]) -> None:
             )
             await scheduler.start()
             logger.info("Job scheduler enabled")
+
+        # API server (if enabled)
+        if features.api_server_enabled:
+            from src.api.server import run_api_server
+
+            api_task = asyncio.create_task(
+                run_api_server(
+                    event_bus,
+                    config,
+                    storage.db_manager,
+                    claude_integration,
+                    storage=storage,
+                    scheduler=scheduler,
+                )
+            )
+            tasks.append(api_task)
+            logger.info("API server enabled", port=config.api_server_port)
 
         # Shutdown task
         shutdown_task = asyncio.create_task(shutdown_event.wait())
