@@ -126,6 +126,16 @@ APPROVED_DIR := $(if $(APPROVED_DIR),$(APPROVED_DIR),$(CURDIR))
 # Tmux session name — derived from directory so sibling deployments don't collide
 SESSION_NAME := serve-$(notdir $(CURDIR))
 
+# Named tunnel ID from .env — when set, serve via a stable named tunnel
+# (dedicated hostname like bot9000.sage.is) instead of a random quick tunnel
+TUNNEL_ID ?= $(shell grep -E '^TUNNEL_ID=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ')
+TUNNEL_ID := $(if $(TUNNEL_ID),$(TUNNEL_ID),)
+ifeq ($(strip $(TUNNEL_ID)),)
+TUNNEL_CMD = cloudflared tunnel --url http://localhost:$(TUNNEL_PORT)
+else
+TUNNEL_CMD = cloudflared tunnel run --url http://localhost:$(TUNNEL_PORT) $(TUNNEL_ID)
+endif
+
 tunnel:  ## Expose the API server to the web via cloudflared
 	@if [ -f .env ] && grep -q '^WEBHOOK_API_SECRET=.\+' .env; then \
 		echo "API key is set — bearer auth will be enforced."; \
@@ -135,7 +145,7 @@ tunnel:  ## Expose the API server to the web via cloudflared
 		echo "The API will be open to anyone with the tunnel URL!"; \
 		echo "Generate one with: openssl rand -hex 32"; \
 	fi
-	cloudflared tunnel --url http://localhost:$(TUNNEL_PORT)
+	$(TUNNEL_CMD)
 
 serve:  ## Run bot + API + tunnel (+ opencode server if BACKEND=opencode)
 	@if [ -f .env ] && grep -q '^WEBHOOK_API_SECRET=.\+' .env; then \
@@ -165,7 +175,7 @@ serve:  ## Run bot + API + tunnel (+ opencode server if BACKEND=opencode)
 		tmux split-window -v -t $(SESSION_NAME) \
 			"uv run claude-api-server; echo '--- api exited, press enter to close ---'; read"; \
 		tmux split-window -h -t $(SESSION_NAME) \
-			"cloudflared tunnel --url http://localhost:$(TUNNEL_PORT); echo '--- tunnel exited, press enter to close ---'; read"; \
+			"$(TUNNEL_CMD); echo '--- tunnel exited, press enter to close ---'; read"; \
 		tmux select-layout -t $(SESSION_NAME) main-horizontal; \
 		tmux select-pane -t $(SESSION_NAME).0; \
 	else \
@@ -186,7 +196,7 @@ serve-bg:  ## Start serve detached (+ opencode server if BACKEND=opencode)
 				split-window -v -t $(SESSION_NAME):bot -c $(CURDIR) \
 				"uv run claude-api-server; echo '--- api exited, press enter to close ---'; read" \; \
 				split-window -h -t $(SESSION_NAME):bot -c $(CURDIR) \
-				"cloudflared tunnel --url http://localhost:$(TUNNEL_PORT); echo '--- tunnel exited, press enter to close ---'; read" \; \
+				"$(TUNNEL_CMD); echo '--- tunnel exited, press enter to close ---'; read" \; \
 				select-layout -t $(SESSION_NAME):bot main-horizontal \; \
 				select-pane -t $(SESSION_NAME):bot.0; \
 		else \
@@ -195,7 +205,7 @@ serve-bg:  ## Start serve detached (+ opencode server if BACKEND=opencode)
 				split-window -v -t $(SESSION_NAME):bot -c $(CURDIR) \
 				"uv run claude-api-server; echo '--- api exited, press enter to close ---'; read" \; \
 				split-window -h -t $(SESSION_NAME):bot -c $(CURDIR) \
-				"cloudflared tunnel --url http://localhost:$(TUNNEL_PORT); echo '--- tunnel exited, press enter to close ---'; read" \; \
+				"$(TUNNEL_CMD); echo '--- tunnel exited, press enter to close ---'; read" \; \
 				select-layout -t $(SESSION_NAME):bot main-horizontal \; \
 				select-pane -t $(SESSION_NAME):bot.0; \
 		fi; \

@@ -23,18 +23,18 @@ Resident Agent Daemon™ is a deployable agent platform, not a library you code 
 ## Architecture at a Glance
 
 ```
-                 ┌─────────────────────────────────────────────────┐
-                 │            Resident Agent Daemon™               │
-                 │                                                 │
- Telegram bot ───┤  ┌───────────────────────────────────────────┐  │
- OpenAI API ─────┤  │  Orchestrator / EventBus                  │  │
- Webhooks ────────┤  │  → AgentHandler → ClaudeIntegration      │  │
- Cron scheduler ──┤  │       ├─ Claude Code SDK (BACKEND=claude) │  │
-                 │  │       └─ OpenCode HTTP API (BACKEND=opencode)│  │
-                 │  └───────────────────────────────────────────┘  │
-                 │  Sessions · Storage (SQLite) · Security         │
-                 │  Notifications · Audit · Rate limits            │
-                 └─────────────────────────────────────────────────┘
+                   ┌─────────────────────────────────────────────────┐
+                   │            Resident Agent Daemon™               │
+                   │                                                 │
+ Telegram bot ─────┤  ┌───────────────────────────────────────────┐  │
+ OpenAI API ───────┤  │        Orchestrator / EventBus            │  │
+ Webhooks ─────────┤  │  → AgentHandler → ClaudeIntegration       │  │
+ Cron scheduler ───┤  │       ├─ Claude Code SDK                  │  │
+                   │  │       └─ OpenCode HTTP API                │  │
+                   │  └───────────────────────────────────────────┘  │
+                   │     Sessions · Storage (SQLite) · Security      │
+                   │      Notifications · Audit · Rate limits        │
+                   └─────────────────────────────────────────────────┘
 ```
 
 The core talks to the agent through a facade (`ClaudeIntegration`) with a single `execute_command` interface. Both `ClaudeSDKManager` and `OpenCodeManager` implement it — swapping cores is a config change, not a code change.

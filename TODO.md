@@ -1,125 +1,84 @@
-# TODO — Pieter Levels Review (2026-04-15)
+# TODO — Resident Agent Daemon™ (pullbot9000)
 
-> "You have real usage data. Let it make the decisions."
+> Multi-harness agent platform by Sage.is: one `execute_command` facade (`src/backend/facade.py`), many agent cores behind it. Design home for new cores: `docs/decisions/multi-backend-chart.md`.
 
-## Usage Reality (from bot.db)
+## Active — New Agent Cores: Pi + NanoCoder (2026-08-12)
 
-| Metric | Number |
-|--------|--------|
-| Total users | **3** (1 active, 1 one-shot, 1 system/zero) |
-| Active user messages | 1,219 over ~50 days |
-| Daily avg (last 14 days) | ~15 messages/day |
-| Total spend | **$2,122** (~$830 in last 14 days alone) |
-| Peak day | $166.70 (Apr 4), $145.85 (Apr 5) |
-| Tool calls tracked | 10,714 |
-| Top tools | Bash (2941), Read (2325), Edit (1900), WebSearch (1070) |
+Both cores drop in behind the existing facade contract:
+`execute_command(prompt, working_directory, session_id, continue_session, stream_callback) -> ClaudeResponse`
+(`content, session_id, cost, duration_ms, num_turns, tools_used`). Selection via `BACKEND` literal in `src/config/settings.py:66`. Mirror the OpenCode pattern: manager (`src/backend/opencode_integration.py`) + sidecar process lifecycle (`src/backend/opencode_server.py`).
 
-### Dead Features (zero rows, never used on this instance)
+### 0. Shared backend foundation (prereq — unblocks both)
 
-| Table | Rows | Verdict |
-|-------|------|---------|
-| user_tokens | 0 | Token auth never used |
-| scheduled_jobs | 0 | Scheduler never used |
-| webhook_events | 0 | Webhooks never triggered |
-| project_threads | 0 | Multi-project threads never used |
+- [ ] **Backend interface contract** — define an ABC/Protocol for managers: `execute_command(...)`, lifecycle hooks (`start`/`stop`/`health`), `get_active_process_count()`. Enforce with mypy + shared contract tests.
+- [ ] **Config pattern** — per-backend nested settings with prefixed env vars (`PI_*`, `NANOCODER_*`); stop growing the single `Settings` model.
+- [ ] **Facade rename** — `ClaudeIntegration` → backend-neutral name (e.g. `AgentIntegration`); add a backend registry mapping `BACKEND` → manager class.
+- [ ] **Contract tests** — one parameterized suite over all managers: result schema, session-resume fallback (fresh-session retry from `facade.py:101`), error mapping (`ClaudeProcessError`/`ClaudeTimeoutError`/`ClaudeParsingError`), cost/turns aggregation.
 
-### Only 1 audit event type exists: `claude_interaction`
+### 1. Pi backend (pi.dev) — RPC-mode path
 
-The entire audit system tracks one thing. 5 security layers protecting 1 active user.
+- [ ] **Research spike: Pi integration surface** — pin the RPC protocol + version; document LF-delimited JSONL framing (split on `\n` only), request/response shape, session create/resume + session-file semantics, and whether cost + tool events stream in JSON/RPC modes. (Loose thread in multi-backend-chart.)
+- [ ] `PiManager` — implement the contract over `pi --mode rpc` (fall back to `--mode json` if RPC is insufficient).
+- [ ] Process lifecycle — spawn `pi --mode rpc --cwd <workspace>`, healthcheck/ping, restart-on-death (mirror `OpenCodeServer`).
+- [ ] Session mapping — Pi JSONL session files ↔ pullbot `session_id` auto-resume.
+- [ ] Streaming → `StreamUpdate`; verify `/verbose 0|1|2` behaves.
+- [ ] Tool validation — reuse `_validate_tool` logic / `monitor.py` helpers for Pi's read/write/edit/bash (+ optional grep/find/ls).
+- [ ] Config — `PI_*` env vars (binary path, model/provider, timeout, auto-start).
+- [ ] Tests — `tests/unit/test_backend/test_pi_integration.py`, `test_pi_server.py` (mirror `test_opencode_*.py`).
+- [ ] Docs — `.env.example`, `docs/configuration.md`, `docs/tools.md`, README agent-core table.
 
----
+### 2. NanoCoder backend (Nano-Collective/nanocoder)
 
-## Phase 0: Decisions Needed
+- [ ] **Research spike: ACP vs headless** — verify the `nanocoder` ACP loop (JSON-RPC over stdio) maturity for tool-event streaming, cost, and session resume. If ACP is immature, gate on upstream issue #603 (`--json` machine output) or a `run --plain` parse fallback, and decide which path to take.
+- [ ] `NanoCoderManager` — implement the contract over ACP (or `nanocoder run --plain` fallback).
+- [ ] Process lifecycle — spawn headless/ACP subprocess, manage restart; respect `NANOCODER_MAX_TURNS` (default 200) as runaway protection.
+- [ ] Session mapping + resume.
+- [ ] Streaming → `StreamUpdate`; `/verbose` compatibility.
+- [ ] Tool validation — map nanocoder tool names to the validator; note headless defaults to `auto-accept`, so pullbot's `SecurityValidator` is the enforcement layer.
+- [ ] Config — `NANOCODER_*` env vars (provider, model, max turns, data dir).
+- [ ] Tests — `tests/unit/test_backend/test_nanocoder_integration.py`, `test_nanocoder_server.py`.
+- [ ] Docs — `.env.example`, `docs/configuration.md`, `docs/tools.md`, README agent-core table.
 
-- [x] Pull usage data — **done, see above**
-- [ ] **This instance = 1 power user, not 20.** Is the 20-person review happening on a different instance? If so, pull that data too
-- [ ] **$830/14 days = ~$1,770/month burn.** Is that acceptable? Is there a budget?
-- [ ] **Internal tool AND product path** — but this instance is essentially a single-user power tool right now
-- [ ] **Agentic mode confirmed as primary** — Classic mode is likely dead weight here
+### 3. Cutover
 
----
+- [ ] `BACKEND` enum: add `pi` and `nanocoder` literals.
+- [ ] Full `make test && make lint` green.
+- [ ] CHANGELOG entry + release notes.
 
-## Phase 1: Delete Dead Code (Safe Kills)
-
-These features have **zero usage on this instance**. Delete the code, keep git history.
-
-- [ ] **Delete token auth system** — `user_tokens` table empty, `src/security/auth.py` TokenAuthProvider unused
-- [ ] **Delete scheduler** — `scheduled_jobs` empty, remove `src/scheduler/` (APScheduler dep can go too)
-- [ ] **Delete webhook system** — `webhook_events` empty, remove `src/api/server.py` webhook routes, `src/events/handlers.py` webhook handling
-- [ ] **Delete project threads** — `project_threads` empty, remove `src/projects/`
-- [ ] **Delete or gate Classic mode** — if Agentic is the path, kill `src/bot/handlers/command.py` (1238 lines), `callback.py` (1316), `message.py` (1065)
-- [ ] **Simplify EventBus** — with no webhooks or scheduler, what's left subscribing?
-
-**Conservative estimate: ~4,000-6,000 lines removed, 3 deps dropped**
-
----
-
-## Phase 2: Simplify the Core
-
-What remains after Phase 1 is: Telegram bot → Claude SDK → SQLite. Make that path simple.
-
-- [ ] **Flatten Claude integration** — `facade.py` → `sdk_integration.py` → SDK client. Should be 1 file
-- [ ] **Simplify storage** — 5 files → 2 (schema + queries). You're storing messages and sessions, not running an ORM
-- [ ] **Simplify security** — whitelist + rate limit is enough. Drop the 5-layer chain to 2
-- [ ] **Reduce config** — 5 config files with feature flags, env detection, API settings. For a single-purpose bot, 1 settings file is enough
-- [ ] **Audit `formatting.py`** (684 lines) — that's a lot of formatting code. What's actually used?
-
----
-
-## Phase 3: Product Path (When Ready)
-
-_Only after Phase 1-2 make the codebase manageable._
-
-- [ ] **Get the 20-person review data** — is there a separate instance? What's their feedback?
-- [ ] **One-line pitch** — "Claude Code from your phone" or "AI dev agent for Telegram teams"
-- [ ] **Landing page + demo GIF** — show, don't tell
-- [ ] **One-command deploy** — `docker run` or Railway template
-- [ ] **Usage analytics dashboard** — you already have the SQLite data, just surface it
-- [ ] **Pricing model** — usage-based with margin on Claude API? You're spending $1,770/mo for 1 user
-
----
-
-## OpenAI Compat API Backlog
-
-_API is confirmed in use. Cost tracking was missing — now fixed (see below)._
+## OpenAI-Compat API Backlog
 
 - [x] Delta-only streaming
-- [x] **Cost tracking for API requests** — API endpoint was not recording costs, messages, or tool usage. Fixed: `Storage.save_claude_interaction()` now called for both streaming and non-streaming paths
-- [ ] `reasoning_content` + `<think>` tags (stashed, being worked on in pullbot9000)
+- [x] Cost tracking for API requests (both streaming and non-streaming paths)
+- [x] `reasoning_content` + thinking tags (landed via `22bef2e`)
 - [ ] Keep-alive comments during tool execution
 - [ ] Tool call streaming (OpenAI format)
 - [ ] Streaming error events
 - [ ] Usage in final chunk
 - [ ] `stop` vs `length` finish reason
 
----
+## Infrastructure Backlog
 
-## Stashed Changes
-
-```
-git stash list  →  "WIP: openai compat reasoning_content + sdk + main changes"
-```
-
-Being worked on in another copy of the repo. Don't touch here.
-
----
+- [ ] **`cloudflared tunnel login`** — run on this Pi to get `cert.pem` in `~/.cloudflared/`. Enables tunnel management commands (`tunnel info`, `tunnel route dns`) locally instead of requiring the Cloudflare dashboard. Not needed for `tunnel run` / `make serve`, but needed to add or change DNS routes from this machine.
 
 ## Repo Consolidation
 
-Two clones exist: `pullbot9000` (API mode) and `pullbot9001` (Telegram mode). They don't need to be separate repos.
+- [x] Confirmed: same codebase, same schema, slightly diverged (9000 = API mode, 9001 = Telegram mode)
+- [ ] Consolidate to one repo with two `.env` files (`.env.telegram`, `.env.api`)
+- [ ] Merge 9000's Makefile targets (`tunnel`, `serve`) into the main Makefile
+- [ ] Archive 9000 or 9001 after migration
 
-- [x] **Confirmed: same codebase, same schema, slightly diverged** — 9000 has 1 extra commit + Makefile `tunnel`/`serve` targets
-- [ ] **Consolidate to one repo with two `.env` files** — `.env.telegram` and `.env.api`, each with its own `DATABASE_URL`
-- [ ] **Merge 9000's Makefile targets** (`tunnel`, `serve`) into the main Makefile
-- [ ] **Cherry-pick `22bef2e`** (thinking/reasoning commit) from 9000 when ready
-- [ ] **Archive pullbot9000** after migration
+---
 
-## The Levels Take
+## Archive — Pieter Levels Review (2026-04-15)
 
-1. **1 user spending $2,122 is either your best customer or a cost center.** Know which.
-2. **4 entire subsystems (tokens, scheduler, webhooks, project threads) were built and never used.** That's weeks of dev time on zero-value features.
-3. **The bot works.** 1,219 messages, 10,714 tool calls. The core is solid. Stop adding, start subtracting.
-4. **$60/day average API spend needs a business model** — even internally, someone's paying that bill.
-5. **The API had no cost tracking.** Fixed now — but unknown spend has been accumulating since March 18.
-6. **Delete the dead code this week.** It's the highest-ROI work: less to maintain, less to understand, less to break.
-7. **One repo, two env files.** Stop maintaining two clones of the same code.
+> "You have real usage data. Let it make the decisions."
+
+**Usage snapshot:** 3 users (1 active), 1,219 msgs/~50 days, **$2,122 total spend** (~$830 last 14 days), peak $166.70 (Apr 4). Dead at review time: token auth (0), scheduler (0), webhooks (0), project threads (0). Audit events: only `claude_interaction`.
+
+**Outcomes since the review** — the delete-heavy recommendations were deliberately superseded by the platform pivot:
+
+- [x] **Shipped the multi-surface platform instead of deleting** — the "dead" subsystems (webhooks, scheduler, token auth, project threads) became advertised features of Resident Agent Daemon™ (README overhaul `e80e3ef`, `docs/` index set up).
+- [x] **Multi-backend facade** (opposite of "flatten to 1 file") — OpenCode backend shipped (`fe41845`), SSE streaming (`536c323`), multi-backend design chart (`b15835e` → `docs/decisions/multi-backend-chart.md`).
+- [x] **Schedule management routes** (`4c253ff`).
+- [x] **Thinking/reasoning fix applied** — `22bef2e`.
+- [ ] **Still open:** 1-power-user economics / spend budget; product-vs-internal positioning; classic-mode fate (kept, 3 handler files ~4k lines); whether to slim 5-layer security to 2 (deferred).
