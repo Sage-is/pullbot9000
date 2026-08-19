@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import structlog
-from dotenv import dotenv_values, load_dotenv
+from dotenv import dotenv_values
 
 from src.exceptions import ConfigurationError, InvalidConfigError
 
@@ -30,16 +30,6 @@ def load_config(
     Raises:
         ConfigurationError: If configuration is invalid
     """
-    # Load shared secrets from ~/.config/vault/secrets (lowest priority)
-    shared_secrets = Path.home() / ".config" / "vault" / "secrets"
-    if shared_secrets.exists():
-        logger.info("Loading shared secrets", path=str(shared_secrets))
-        load_dotenv(shared_secrets, override=False)
-    else:
-        logger.debug("No shared secrets file found", path=str(shared_secrets))
-
-    # Load .env — only non-empty values override shared secrets.
-    # Empty values (e.g. TELEGRAM_BOT_TOKEN=) are intentional "use fallback" markers.
     env_file = config_file or Path(".env")
     if env_file.exists():
         logger.info("Loading .env file", path=str(env_file))
