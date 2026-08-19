@@ -11,6 +11,7 @@ Usage:
 import argparse
 import asyncio
 import logging
+import os
 import signal
 import sys
 from pathlib import Path
@@ -157,6 +158,15 @@ async def main() -> None:
 
     try:
         server_task = asyncio.create_task(server.serve())
+
+        port_file = os.environ.get("API_PORT_FILE")
+        if port_file:
+            while not server.started:
+                await asyncio.sleep(0.1)
+            actual_port = server.servers[0].sockets[0].getsockname()[1]
+            Path(port_file).write_text(str(actual_port))
+            log.info("port_file_written", path=port_file, port=actual_port)
+
         shutdown_task = asyncio.create_task(shutdown_event.wait())
 
         done, pending = await asyncio.wait(

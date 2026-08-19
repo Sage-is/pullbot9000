@@ -227,7 +227,9 @@ class Settings(BaseSettings):
             "(e.g. 10.55.0.1) to bind to one interface."
         ),
     )
-    api_server_port: int = Field(8080, description="Webhook API server port")
+    api_server_port: int = Field(
+        0, description="API server port (0 = OS-assigned)"
+    )
     api_stream_thinking: bool = Field(
         False,
         description=(

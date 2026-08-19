@@ -4,7 +4,10 @@ Runs in the same process as the bot, sharing the event loop.
 Receives external webhooks and publishes them as events on the bus.
 """
 
+import asyncio
+import os
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import structlog
@@ -224,5 +227,16 @@ async def run_api_server(
         port=settings.api_server_port,
         log_level="info" if not settings.debug else "debug",
     )
+    log = structlog.get_logger()
     server = uvicorn.Server(config)
-    await server.serve()
+    serve_task = asyncio.ensure_future(server.serve())
+
+    port_file = os.environ.get("API_PORT_FILE")
+    if port_file:
+        while not server.started:
+            await asyncio.sleep(0.1)
+        actual_port = server.servers[0].sockets[0].getsockname()[1]
+        Path(port_file).write_text(str(actual_port))
+        log.info("port_file_written", path=port_file, port=actual_port)
+
+    await serve_task

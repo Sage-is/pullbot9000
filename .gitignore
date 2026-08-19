@@ -146,3 +146,8 @@ data/
 sessions/
 backups/
 uploads/
+
+# AppDir instance state
+template.app/data/
+.agents/
+skills-lock.json
