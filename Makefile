@@ -1,6 +1,7 @@
 .PHONY: install dev test lint format clean help run run-api run-api-debug run-remote remote-attach remote-stop \
        bump-patch bump-minor bump-major release version tunnel serve serve-bg serve-stop \
-       check-deps setup-claude setup-opencode
+       check-deps setup-claude setup-opencode \
+       new-instance list-instances start-all stop-all
 
 # Default target
 help:
@@ -27,6 +28,10 @@ help:
 	@echo "  check-deps    - Verify Node.js, Claude Code, and OpenCode CLIs"
 	@echo "  setup-claude  - Install Claude Code CLI via npm"
 	@echo "  setup-opencode - Install OpenCode CLI via npm"
+	@echo "  new-instance  - Create AppDir: make new-instance NAME=mybot"
+	@echo "  list-instances- List all AppDir instances and their status"
+	@echo "  start-all     - Start all AppDir instances"
+	@echo "  stop-all      - Stop all AppDir instances"
 	@echo "  run-remote    - Start bot in tmux on remote Mac (unlocks keychain)"
 	@echo "  remote-attach - Attach to running bot tmux session"
 	@echo "  remote-stop   - Stop the bot tmux session"
@@ -214,6 +219,46 @@ serve-bg:  ## Start serve detached (+ opencode server if BACKEND=opencode)
 
 serve-stop:  ## Stop the serve tmux session
 	@tmux kill-session -t $(SESSION_NAME) 2>/dev/null && echo "'$(SESSION_NAME)' session stopped" || echo "No '$(SESSION_NAME)' session running"
+
+# --- AppDir Instance Management ---
+
+new-instance:  ## Create a new AppDir instance: make new-instance NAME=mybot
+	@if [ -z "$(NAME)" ]; then echo "Usage: make new-instance NAME=mybot"; exit 1; fi
+	@TARGET="$(HOME)/$(NAME).app"; \
+	if [ -d "$$TARGET" ]; then echo "$$TARGET already exists"; exit 1; fi; \
+	cp -r template.app "$$TARGET"; \
+	chmod +x "$$TARGET/AppRun"; \
+	mkdir -p "$$TARGET/data"; \
+	ln -sf "$(CURDIR)/src" "$$TARGET/src"; \
+	ln -sf "$(CURDIR)/pyproject.toml" "$$TARGET/pyproject.toml"; \
+	ln -sf "$(CURDIR)/.venv" "$$TARGET/.venv"; \
+	cp template.app/.env.example "$$TARGET/.env"; \
+	sed -i "s|INSTANCE_NAME|$(NAME)|" "$$TARGET/.env"; \
+	echo "Created $$TARGET — edit $$TARGET/.env then run $$TARGET/AppRun"
+
+list-instances:  ## List all .app instances in ~
+	@for app in $(HOME)/*.app; do \
+		[ -f "$$app/AppRun" ] || continue; \
+		name=$$(basename "$$app" .app); \
+		if tmux has-session -t "serve-$$name" 2>/dev/null; then \
+			port=$$(cat "$$app/data/api.port" 2>/dev/null || echo '?'); \
+			echo "  $$name: RUNNING (port $$port)"; \
+		else \
+			echo "  $$name: stopped"; \
+		fi; \
+	done
+
+start-all:  ## Start all AppDir instances
+	@for app in $(HOME)/*.app; do \
+		[ -f "$$app/AppRun" ] || continue; \
+		"$$app/AppRun" start; \
+	done
+
+stop-all:  ## Stop all AppDir instances
+	@for app in $(HOME)/*.app; do \
+		[ -f "$$app/AppRun" ] || continue; \
+		"$$app/AppRun" stop; \
+	done
 
 # --- Version Management ---
 

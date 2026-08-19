@@ -1,0 +1,101 @@
+#!/bin/sh
+# AppRun — Pullbot instance launcher
+# Usage: ./AppRun [stop|status|attach]
+set -e
+
+APP_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_NAME="$(basename "$APP_DIR" .app)"
+PULLBOT_HOME="${PULLBOT_HOME:-$HOME/pullbot}"
+SESSION="serve-${APP_NAME}"
+PORT_FILE="$APP_DIR/data/api.port"
+ENV_FILE="$APP_DIR/.env"
+
+if [ ! -f "$ENV_FILE" ]; then
+    echo "ERROR: $ENV_FILE not found — copy from template and configure"
+    exit 1
+fi
+
+# Source instance config
+set -a
+. "$ENV_FILE"
+set +a
+
+# Export port file path so the API server knows where to write
+export API_PORT_FILE="$PORT_FILE"
+
+case "${1:-start}" in
+  stop)
+    tmux kill-session -t "$SESSION" 2>/dev/null && echo "$APP_NAME stopped" || echo "$APP_NAME not running"
+    rm -f "$PORT_FILE"
+    ;;
+  status)
+    if tmux has-session -t "$SESSION" 2>/dev/null; then
+        PORT="$(cat "$PORT_FILE" 2>/dev/null || echo '?')"
+        echo "$APP_NAME: RUNNING (port $PORT)"
+    else
+        echo "$APP_NAME: stopped"
+    fi
+    ;;
+  attach)
+    tmux attach -t "$SESSION"
+    ;;
+  start)
+    if tmux has-session -t "$SESSION" 2>/dev/null; then
+        echo "$APP_NAME already running — ./AppRun stop first"
+        exit 0
+    fi
+
+    rm -f "$PORT_FILE"
+    echo "Starting $APP_NAME: backend=${BACKEND:-claude}"
+    cd "$PULLBOT_HOME"
+
+    # Pane 0: OpenCode sidecar (if BACKEND=opencode)
+    if [ "${BACKEND:-claude}" = "opencode" ]; then
+        OPENCODE_PORT="${OPENCODE_SERVER_PORT:-4096}"
+        tmux new-session -d -s "$SESSION" -n bot -c "${APPROVED_DIRECTORY:-$PULLBOT_HOME}" \
+            "opencode serve --port $OPENCODE_PORT; echo '--- opencode exited ---'; read"
+        tmux split-window -v -t "$SESSION:bot" -c "$PULLBOT_HOME" \
+            "env -u CLAUDECODE API_PORT_FILE=$PORT_FILE uv run sage-is-agent-bot --config-file $ENV_FILE; echo '--- bot exited ---'; read"
+    else
+        # Pane 0: Telegram bot
+        tmux new-session -d -s "$SESSION" -n bot -c "$PULLBOT_HOME" \
+            "env -u CLAUDECODE API_PORT_FILE=$PORT_FILE uv run sage-is-agent-bot --config-file $ENV_FILE; echo '--- bot exited ---'; read"
+    fi
+
+    # API server pane (writes port file on bind)
+    tmux split-window -v -t "$SESSION:bot" -c "$PULLBOT_HOME" \
+        "API_PORT_FILE=$PORT_FILE uv run claude-api-server --config-file $ENV_FILE; echo '--- api exited ---'; read"
+
+    # Wait for port file (API server writes it after binding)
+    echo -n "Waiting for API server to bind..."
+    TRIES=0
+    while [ ! -f "$PORT_FILE" ] && [ "$TRIES" -lt 30 ]; do
+        sleep 0.5
+        TRIES=$((TRIES + 1))
+        echo -n "."
+    done
+    echo ""
+
+    if [ ! -f "$PORT_FILE" ]; then
+        echo "ERROR: API server did not write port file within 15s"
+        tmux kill-session -t "$SESSION" 2>/dev/null
+        exit 1
+    fi
+
+    TUNNEL_PORT="$(cat "$PORT_FILE")"
+    echo "API server bound to port $TUNNEL_PORT"
+
+    # Tunnel pane
+    if [ -n "$TUNNEL_ID" ]; then
+        TUNNEL_CMD="cloudflared tunnel run --url http://localhost:$TUNNEL_PORT $TUNNEL_ID"
+    else
+        TUNNEL_CMD="cloudflared tunnel --url http://localhost:$TUNNEL_PORT"
+    fi
+    tmux split-window -h -t "$SESSION:bot" -c "$PULLBOT_HOME" \
+        "$TUNNEL_CMD; echo '--- tunnel exited ---'; read"
+
+    tmux select-layout -t "$SESSION:bot" main-horizontal
+    tmux select-pane -t "$SESSION:bot.0"
+    echo "Started $APP_NAME on port $TUNNEL_PORT. Attach: ./AppRun attach | Stop: ./AppRun stop"
+    ;;
+esac
