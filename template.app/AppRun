@@ -27,6 +27,11 @@ export API_PORT_FILE="$PORT_FILE"
 # env vars regardless of what the tmux server has in its global env.
 PANE_ENV="set -a; . $ENV_FILE; set +a; export API_PORT_FILE=$PORT_FILE;"
 
+# Each instance runs its own tmux server (socket named after the app), so one
+# instance stopping or failing never takes another down with it.
+# By hand: tmux -L pullbot9000 attach -t serve-pullbot9000
+tmux() { command tmux -L "$APP_NAME" "$@"; }
+
 case "${1:-start}" in
   stop)
     tmux kill-session -t "$SESSION" 2>/dev/null && echo "$APP_NAME stopped" || echo "$APP_NAME not running"
@@ -56,31 +61,34 @@ case "${1:-start}" in
     # Pane 0: OpenCode sidecar (if BACKEND=opencode)
     if [ "${BACKEND:-claude}" = "opencode" ]; then
         OPENCODE_PORT="${OPENCODE_SERVER_PORT:-4096}"
-        tmux new-session -d -s "$SESSION" -n bot -c "${APPROVED_DIRECTORY:-$PULLBOT_HOME}" \
-            "opencode serve --port $OPENCODE_PORT; echo '--- opencode exited ---'; read"
+        FIRST_PANE="$(tmux new-session -d -P -F '#{pane_id}' -s "$SESSION" -n bot -c "${APPROVED_DIRECTORY:-$PULLBOT_HOME}" \
+            "opencode serve --port $OPENCODE_PORT; echo '--- opencode exited ---'; read")"
         tmux split-window -v -t "$SESSION:bot" -c "$PULLBOT_HOME" \
             "$PANE_ENV env -u CLAUDECODE uv run sage-is-agent-bot --config-file $ENV_FILE; echo '--- bot exited ---'; read"
     else
-        tmux new-session -d -s "$SESSION" -n bot -c "$PULLBOT_HOME" \
-            "$PANE_ENV env -u CLAUDECODE uv run sage-is-agent-bot --config-file $ENV_FILE; echo '--- bot exited ---'; read"
+        FIRST_PANE="$(tmux new-session -d -P -F '#{pane_id}' -s "$SESSION" -n bot -c "$PULLBOT_HOME" \
+            "$PANE_ENV env -u CLAUDECODE uv run sage-is-agent-bot --config-file $ENV_FILE; echo '--- bot exited ---'; read")"
     fi
 
     # API server pane (writes port file on bind)
     tmux split-window -v -t "$SESSION:bot" -c "$PULLBOT_HOME" \
         "$PANE_ENV uv run claude-api-server --config-file $ENV_FILE; echo '--- api exited ---'; read"
 
-    # Wait for port file (API server writes it after binding)
+    # Wait for port file (API server writes it after binding). A cold boot on
+    # a Raspberry Pi takes minutes, so allow 3. Count the seconds rather than
+    # read the clock: the Pi has no clock battery, and the first NTP sync after
+    # boot can jump the time forward by minutes.
     echo -n "Waiting for API server to bind..."
-    TRIES=0
-    while [ ! -f "$PORT_FILE" ] && [ "$TRIES" -lt 60 ]; do
-        sleep 0.5
-        TRIES=$((TRIES + 1))
+    WAITED=0
+    while [ ! -f "$PORT_FILE" ] && [ "$WAITED" -lt 180 ]; do
+        sleep 1
+        WAITED=$((WAITED + 1))
         echo -n "."
     done
     echo ""
 
     if [ ! -f "$PORT_FILE" ]; then
-        echo "ERROR: API server did not write port file within 30s"
+        echo "ERROR: API server did not write port file within 180s"
         tmux kill-session -t "$SESSION" 2>/dev/null
         exit 1
     fi
@@ -98,6 +106,7 @@ case "${1:-start}" in
         "$TUNNEL_CMD; echo '--- tunnel exited ---'; read"
 
     tmux select-layout -t "$SESSION:bot" main-horizontal
+    tmux select-pane -t "$FIRST_PANE"
     echo "Started $APP_NAME on port $TUNNEL_PORT. Attach: ./AppRun attach | Stop: ./AppRun stop"
     ;;
 esac
